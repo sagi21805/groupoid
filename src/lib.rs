@@ -1,5 +1,6 @@
+pub mod blueprint;
 pub mod proto;
-pub mod syntax_prototype;
+// pub mod syntax_prototype;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
