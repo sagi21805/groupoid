@@ -1,18 +1,15 @@
-pub mod blueprint;
-pub mod proto;
+use proc_macro::TokenStream;
+use syn::{ItemTrait, parse_macro_input};
+
+use crate::blueprint::Blueprint;
+
+mod blueprint;
+mod proto;
 // pub mod syntax_prototype;
 
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+#[proc_macro_attribute]
+pub fn blueprint(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item_trait = parse_macro_input!(item as ItemTrait);
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+    Blueprint::new(&item_trait).create_group_marker().into()
 }
