@@ -2,14 +2,14 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{Ident, ItemImpl, Type};
 
-pub struct GroupImpl<'ast> {
+pub struct Group<'ast> {
     inner_impl: &'ast ItemImpl,
     group_name: &'ast Ident,
 }
 
-impl<'ast> GroupImpl<'ast> {
-    pub fn new(item_impl: &'ast ItemImpl, group_name: &'ast Ident) -> GroupImpl<'ast> {
-        GroupImpl {
+impl<'ast> Group<'ast> {
+    pub fn new(item_impl: &'ast ItemImpl, group_name: &'ast Ident) -> Group<'ast> {
+        Group {
             inner_impl: item_impl,
             group_name,
         }

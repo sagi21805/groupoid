@@ -1,4 +1,4 @@
-use groupoid::group_impl;
+use groupoid::group;
 
 trait Testing {
     type Meta;
@@ -14,7 +14,7 @@ trait TestingGroupMarker {
 pub struct StateA;
 pub struct StateB;
 
-#[group_impl(TestGroup)]
+#[group(TestGroup)]
 impl Testing for (StateA, StateB) {
     type Meta = usize;
     type AnotherType = u64;
