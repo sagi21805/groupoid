@@ -13,6 +13,7 @@ pub trait Metadata {
 #[include_states(StateA, StateC)]
 pub struct GroupA;
 
+#[blueprint_impl]
 impl Metadata for GroupA {
     type Meta = usize;
     type Buffer = [u8; 64];
@@ -22,10 +23,8 @@ impl Metadata for GroupA {
     }
 }
 
-#[include_states(StateB)]
-pub struct GroupB;
-
-impl Metadata for GroupB {
+#[group_impl]
+impl Metadata for (StateA, StateB) {
     type Meta = u64;
     type Buffer = [u8; 128];
     const GROUP_ID: u32 = 2;
