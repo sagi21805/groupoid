@@ -1,10 +1,11 @@
 use proc_macro::TokenStream;
 use syn::{Ident, ItemImpl, ItemTrait, parse_macro_input};
 
-use crate::{blueprint::Blueprint, group::Group};
+use crate::{blueprint::Blueprint, group::Group, group_impl::GroupImpl};
 
 mod blueprint;
 mod group;
+mod group_impl;
 mod proto;
 // pub mod syntax_prototype;
 
@@ -17,11 +18,22 @@ pub fn blueprint(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
 #[proc_macro_attribute]
 pub fn group(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let item_trait = parse_macro_input!(item as ItemImpl);
+    let item_impl = parse_macro_input!(item as ItemImpl);
     let name = parse_macro_input!(attr as Ident);
 
-    Group::new(&item_trait, &name)
+    Group::new(&item_impl, &name)
         .generate_group_impl()
         .unwrap_or_else(|err| err.to_compile_error())
+        .into()
+}
+
+#[proc_macro_attribute]
+pub fn group_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item_impl = parse_macro_input!(item as ItemImpl);
+    let name = parse_macro_input!(attr as Ident);
+
+    GroupImpl::new(&item_impl, &name)
+        .create_group_impl()
+        .unwrap_or_else(|e| e.into_compile_error())
         .into()
 }

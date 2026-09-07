@@ -19,7 +19,11 @@ struct Example<T: Testing> {
     meta: T::Meta,
 }
 
-#
 trait ExampleTrait {
+    fn testing(test: usize);
+}
+
+#[groupoid::group_impl(TestGroup)]
+impl<S: Testing> ExampleTrait for Example<S> {
     fn testing(test: usize) {}
 }
