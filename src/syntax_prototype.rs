@@ -2,7 +2,7 @@ struct StateA;
 struct StateB;
 struct StateC;
 
-#[groupoid::blueprint]
+#[blueprint]
 pub trait Metadata {
     type Meta;
     type Buffer;
@@ -10,20 +10,7 @@ pub trait Metadata {
     fn default_meta() -> Self::Meta;
 }
 
-#[include_states(StateA, StateC)]
-pub struct GroupA;
-
-#[blueprint_impl]
-impl Metadata for GroupA {
-    type Meta = usize;
-    type Buffer = [u8; 64];
-    const GROUP_ID: u32 = 1;
-    fn default_meta() -> Self::Meta {
-        0
-    }
-}
-
-#[group_impl]
+#[group(GroupA)]
 impl Metadata for (StateA, StateB) {
     type Meta = u64;
     type Buffer = [u8; 128];
@@ -33,16 +20,28 @@ impl Metadata for (StateA, StateB) {
     }
 }
 
-// 3. The Target Types
+#[group(GroupB)]
+impl Metadata for (StateA, StateB) {
+    type Meta = usize;
+    type Buffer = [u16; 128];
+    const GROUP_ID: u32 = 3;
+    fn default_meta() -> Self::Meta {
+        42
+    }
+}
+
+#[implements(A, B, state = S)]
 pub struct MyStruct<S: Metadata> {
     data: S::Meta,
 }
+
+#[group_trait]
 pub trait A {
     fn a(&self);
 }
 
 #[group_impl(GroupA)]
-impl<S> A for MyStruct<S> {
+impl<S: Metadata> A for MyStruct<S> {
     fn a(&self) {
         println!(
             "Group A impl. ID: {}, Default: {}",
@@ -53,7 +52,7 @@ impl<S> A for MyStruct<S> {
 }
 
 #[group_impl(GroupB)]
-impl<S> A for MyStruct<S> {
+impl<S: Metadata> A for MyStruct<S> {
     fn a(&self) {
         println!(
             "Group B impl. ID: {}, Default: {}",

@@ -45,7 +45,7 @@ mod machine {
         fn a(&self);
     }
 
-    trait AHelper<Marker> {
+    trait AHelper<Marker: GroupMarker> {
         fn a(&self);
     }
 
