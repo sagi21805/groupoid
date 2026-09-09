@@ -1,4 +1,4 @@
-use groupoid::{blueprint, group};
+use groupoid_macros::{blueprint, group};
 
 #[blueprint]
 trait Testing {
@@ -27,12 +27,12 @@ impl<T: Testing> HasState for Example<T> {
     type State = T;
 }
 
-#[groupoid::group_trait(by = Testing)]
+#[groupoid_macros::group_trait(by = Testing)]
 trait A {
     fn a(&self);
 }
 
-#[groupoid::group_impl(TestGroup)]
+#[groupoid_macros::group_impl(TestGroup)]
 impl<S: Testing> ExampleTrait for Example<S> {
     fn testing(test: usize) {}
 }

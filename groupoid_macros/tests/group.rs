@@ -1,4 +1,4 @@
-use groupoid::group;
+use groupoid_macros::group;
 
 trait Testing {
     type Meta;

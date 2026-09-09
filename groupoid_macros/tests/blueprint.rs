@@ -1,4 +1,4 @@
-use groupoid::blueprint;
+use groupoid_macros::blueprint;
 
 #[blueprint]
 trait Testing {
