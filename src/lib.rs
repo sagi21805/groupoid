@@ -1,13 +1,20 @@
 use proc_macro::TokenStream;
-use syn::{Ident, ItemImpl, ItemTrait, parse_macro_input};
+use syn::{Ident, ItemImpl, ItemStruct, ItemTrait, parse_macro_input};
 
-use crate::{blueprint::Blueprint, group::Group, group_impl::GroupImpl};
+use crate::{
+    blueprint::Blueprint,
+    group::Group,
+    group_impl::GroupImpl,
+    group_trait::{GroupTrait, GroupTraitArgs},
+    state::{State, StateArg},
+};
 
 mod blueprint;
 mod group;
 mod group_impl;
-mod implements;
+mod group_trait;
 mod proto;
+mod state;
 // pub mod syntax_prototype;
 
 #[proc_macro_attribute]
@@ -35,6 +42,28 @@ pub fn group_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     GroupImpl::new(&item_impl, &name)
         .create_group_impl()
+        .unwrap_or_else(|e| e.into_compile_error())
+        .into()
+}
+
+#[proc_macro_attribute]
+pub fn state(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let state = parse_macro_input!(attr as State);
+    let item_struct = parse_macro_input!(item as ItemStruct);
+
+    StateArg::new(&state, &item_struct)
+        .generate_has_state_impl()
+        .unwrap_or_else(|e| e.into_compile_error())
+        .into()
+}
+
+#[proc_macro_attribute]
+pub fn group_trait(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let args = parse_macro_input!(attr as GroupTraitArgs);
+    let item_trait = parse_macro_input!(item as ItemTrait);
+
+    GroupTrait::new(&args, &item_trait)
+        .generate_group_trait()
         .unwrap_or_else(|e| e.into_compile_error())
         .into()
 }
