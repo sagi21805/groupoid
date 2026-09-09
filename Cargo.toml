@@ -1,13 +1,5 @@
-[package]
-name = "groupoid"
-version = "0.1.0"
-edition = "2024"
+[workspace]
 
-[lib]
-proc-macro = true
+members = ["groupoid", "groupoid_macros"]
 
-[dependencies]
-impls = "1.0.3"
-proc-macro2 = "1.0.107"
-quote = "1.0.47"
-syn = { version = "3.0.5", features = ["full", "extra-traits"] }
+resolver = "2"
