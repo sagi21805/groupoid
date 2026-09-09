@@ -1,8 +1,7 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-    GenericParam, Ident, ImplItem, ImplItemFn, ItemImpl, Signature, Type, TypeParamBound, TypePath,
-    WherePredicate,
+    GenericParam, Ident, ImplItem, ItemImpl, Signature, Type, TypeParamBound, WherePredicate,
 };
 
 pub struct GroupImpl<'ast> {
