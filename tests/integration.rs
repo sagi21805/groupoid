@@ -19,8 +19,17 @@ struct Example<T: Testing> {
     meta: T::Meta,
 }
 
-trait ExampleTrait {
-    fn testing(test: usize);
+pub trait HasState {
+    type State;
+}
+
+impl<T: Testing> HasState for Example<T> {
+    type State = T;
+}
+
+#[groupoid::group_trait(by = Testing)]
+trait A {
+    fn a(&self);
 }
 
 #[groupoid::group_impl(TestGroup)]
