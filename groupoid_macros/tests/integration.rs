@@ -1,4 +1,4 @@
-use groupoid_macros::{blueprint, group};
+use groupoid_macros::{blueprint, group, state, typestate};
 
 #[blueprint]
 trait Testing {
@@ -6,7 +6,9 @@ trait Testing {
     type AnotherType: Sized;
 }
 
+#[state]
 pub struct StateA;
+#[state]
 pub struct StateB;
 
 #[group(TestGroup)]
@@ -15,16 +17,9 @@ impl Testing for (StateA, StateB) {
     type AnotherType = u64;
 }
 
+#[typestate(state = T)]
 struct Example<T: Testing> {
     meta: T::Meta,
-}
-
-pub trait HasState {
-    type State;
-}
-
-impl<T: Testing> HasState for Example<T> {
-    type State = T;
 }
 
 #[groupoid_macros::group_trait(by = Testing)]

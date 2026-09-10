@@ -1,5 +1,8 @@
+#[state]
 struct StateA;
+#[state]
 struct StateB;
+#[state]
 struct StateC;
 
 #[blueprint]
@@ -30,7 +33,7 @@ impl Metadata for (StateA, StateB) {
     }
 }
 
-#[implements(A, B, state = S)]
+#[typestate(state = S)]
 pub struct MyStruct<S: Metadata> {
     data: S::Meta,
 }

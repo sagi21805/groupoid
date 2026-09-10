@@ -1,4 +1,4 @@
-use groupoid_macros::group;
+use groupoid_macros::{group, state};
 
 trait Testing {
     type Meta;
@@ -11,7 +11,9 @@ trait TestingGroupMarker {
     type AnotherType: Sized;
 }
 
+#[state]
 pub struct StateA;
+#[state]
 pub struct StateB;
 
 #[group(TestGroup)]

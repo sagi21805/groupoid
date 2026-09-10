@@ -8,7 +8,7 @@ struct Test<T> {
     _marker: PhantomData<T>,
 }
 
-impl<T> groupoid::WithState for Test<T> {
+impl<T: groupoid::State> groupoid::WithState for Test<T> {
     type State = T;
 }
 #[cfg(test)]
