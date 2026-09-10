@@ -6,7 +6,8 @@ use crate::{
     group::Group,
     group_impl::GroupImpl,
     group_trait::{GroupTrait, GroupTraitArgs},
-    state::{State, StateArg},
+    state::State,
+    typestate::{TypeState, TypeStateArg},
 };
 
 mod blueprint;
@@ -15,6 +16,7 @@ mod group_impl;
 mod group_trait;
 mod proto;
 mod state;
+mod typestate;
 // pub mod syntax_prototype;
 
 #[proc_macro_attribute]
@@ -47,14 +49,21 @@ pub fn group_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn state(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let state = parse_macro_input!(attr as State);
+pub fn typestate(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let state = parse_macro_input!(attr as TypeState);
     let item_struct = parse_macro_input!(item as ItemStruct);
 
-    StateArg::new(&state, &item_struct)
+    TypeStateArg::new(&state, &item_struct)
         .generate_has_state_impl()
         .unwrap_or_else(|e| e.into_compile_error())
         .into()
+}
+
+#[proc_macro_attribute]
+pub fn state(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item_struct = parse_macro_input!(item as ItemStruct);
+
+    State::new(&item_struct).generate_state_impl().into()
 }
 
 #[proc_macro_attribute]
