@@ -67,7 +67,8 @@ impl<'ast> GroupTrait<'ast> {
         let state_assoc = format_ident!("State");
         let marker_assoc = format_ident!("Marker");
 
-        let helper_ident = format_ident!("{}Helper", trait_ident);
+        let helper_ident = crate::naming::helper_trait_ident(trait_ident);
+        let helper_mod_ident = crate::naming::helper_mod_ident(trait_ident);
 
         // `<T::State as Metadata>::Marker`, the concrete marker type used to
         // pick which `AHelper` impl applies to a given `T`.
@@ -90,8 +91,19 @@ impl<'ast> GroupTrait<'ast> {
                     let sig = method.sig.clone();
                     let method_ident = sig.ident.clone();
                     let is_async = sig.asyncness.is_some();
+                    let has_receiver = matches!(sig.inputs.first(), Some(FnArg::Receiver(_)));
 
-                    let mut call_args = Vec::new();
+                    if !has_receiver {
+                        return Err(syn::Error::new_spanned(
+                            &sig,
+                            format!(
+                                "method `{method_ident}` must take `self`: \
+                                 #[group_trait] requires every method to have a receiver"
+                            ),
+                        ));
+                    }
+
+                    let mut call_args = vec![quote!(self)];
                     for (idx, fn_arg) in sig.inputs.iter().enumerate() {
                         if let FnArg::Typed(pat_type) = fn_arg {
                             match &*pat_type.pat {
@@ -117,8 +129,8 @@ impl<'ast> GroupTrait<'ast> {
 
                     delegated.push(quote! {
                         #sig {
-                            <T as #helper_ident<#concrete_marker>>::#method_ident(
-                                self #(, #call_args)*
+                            <T as #helper_mod_ident::#helper_ident<#concrete_marker>>::#method_ident(
+                                #(#call_args),*
                             ) #maybe_await
                         }
                     });
@@ -143,16 +155,21 @@ impl<'ast> GroupTrait<'ast> {
                 #(#trait_items)*
             }
 
-            #(#attrs)*
-            #vis trait #helper_ident<Marker: #marker_trait> {
-                #(#helper_items)*
+            #[allow(non_snake_case)]
+            #vis mod #helper_mod_ident {
+                use super::*;
+
+                #(#attrs)*
+                pub trait #helper_ident<Marker: #marker_trait> {
+                    #(#helper_items)*
+                }
             }
 
             impl<T> #trait_ident for T
             where
                 T: #has_state_trait,
                 T::#state_assoc: #metadata_trait,
-                T: #helper_ident<#concrete_marker>,
+                T: #helper_mod_ident::#helper_ident<#concrete_marker>,
             {
                 #(#delegated)*
             }
