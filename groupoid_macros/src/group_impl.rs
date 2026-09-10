@@ -1,7 +1,6 @@
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
 use syn::{
-    GenericParam, Ident, ImplItem, ItemImpl, Signature, Type, TypeParamBound, WherePredicate,
+    AngleBracketedGenericArguments, Ident, ItemImpl, PathArguments, PathSegment, parse_quote,
 };
 
 pub struct GroupImpl<'ast> {
@@ -17,93 +16,36 @@ impl<'ast> GroupImpl<'ast> {
         }
     }
 
-    fn find_state_generic(&self, trait_name: &Ident) -> syn::Result<&'ast Ident> {
-        let generics = &self.inner_impl.generics;
-        for param in &generics.params {
-            if let GenericParam::Type(type_param) = param {
-                for bound in &type_param.bounds {
-                    if let TypeParamBound::Trait(trait_bound) = bound {
-                        if trait_bound.path.get_ident().ok_or(syn::Error::new_spanned(
-                            trait_bound,
-                            "Currently not supporting traits full name",
-                        ))? == trait_name
-                        {
-                            return Ok(&type_param.ident);
-                        }
-                    }
-                }
-            }
-        }
-
-        if let Some(where_clause) = &self.inner_impl.generics.where_clause {
-            for predicate in &where_clause.predicates {
-                if let WherePredicate::Type(predicate_type) = &predicate {
-                    for bound in &predicate_type.bounds {
-                        if let TypeParamBound::Trait(trait_bound) = bound {
-                            if trait_bound.path.get_ident().ok_or(syn::Error::new_spanned(
-                                trait_bound,
-                                "Currently not supporting traits full name",
-                            ))? == trait_name
-                            {
-                                if let Type::Path(path_ty) = &predicate_type.bounded_ty {
-                                    return Ok(path_ty.path.get_ident().ok_or(
-                                        syn::Error::new_spanned(
-                                            path_ty,
-                                            "Currently supporting only single ident types",
-                                        ),
-                                    )?);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Err(syn::Error::new_spanned(
-            &self.inner_impl,
-            "Did not find generic parameter that satisfies the trait implementation",
-        ))
-    }
-
     pub fn create_group_impl(&self) -> syn::Result<TokenStream> {
-        let (trait_path, _) = self
-            .inner_impl
-            .trait_
-            .as_ref()
-            .ok_or(syn::Error::new_spanned(
-                self.inner_impl,
-                "Expected trait impl block, found regular.",
-            ))?;
+        let mut modified: ItemImpl = self.inner_impl.clone();
 
-        let trait_name = trait_path.get_ident().ok_or(syn::Error::new_spanned(
-            trait_path,
-            "Expected trait path name to be single ident",
+        let (trait_path, _) = modified.trait_.as_mut().ok_or(syn::Error::new_spanned(
+            self.inner_impl,
+            "Expected trait impl block, found regular.",
         ))?;
 
-        let helper_name = format_ident!("{}Helper", trait_name);
+        // Rename the last segment to `{Trait}Helper<GroupName>`
+        if trait_path.segments.is_empty() {
+            return Err(syn::Error::new_spanned(
+                &*trait_path,
+                "Expected a non-empty trait path",
+            ));
+        }
+        let last: &mut PathSegment = trait_path.segments.last_mut().unwrap();
 
-        let signatures = self
-            .inner_impl
-            .items
-            .iter()
-            .filter_map(|i| {
-                if let ImplItem::Fn(f) = i {
-                    Some(&f.sig)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<&Signature>>();
+        let helper_mod_ident = crate::naming::helper_mod_ident(&last.ident);
 
-        let modified: ItemImpl = self.inner_impl.clone();
+        last.ident = crate::naming::helper_trait_ident(&last.ident);
+        let group_name = self.group_name;
+        let args: AngleBracketedGenericArguments = parse_quote!(<#group_name>);
+        last.arguments = PathArguments::AngleBracketed(args);
 
-        let helper_trait = quote! {
-            trait #helper_name<Marker> {
-                #(#signatures;)*
-            }
-        };
+        // Insert the mod name as a prefix for the helper trait.
+        let mod_index = trait_path.segments.len() - 1;
+        trait_path
+            .segments
+            .insert(mod_index, PathSegment::from(helper_mod_ident));
 
-        Ok(helper_trait)
+        Ok(quote::quote!(#modified))
     }
 }
