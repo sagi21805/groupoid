@@ -60,7 +60,7 @@ impl<'ast> GroupTrait<'ast> {
             last.ident = format_ident!("{}GroupMarker", last.ident);
         }
 
-        let has_state_trait = format_ident!("HasState");
+        let has_state_trait = quote!(::groupoid::WithState);
         let metadata_trait = &self.args.ty;
 
         // Fixed associated-type names, matching the example this macro is based on.

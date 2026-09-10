@@ -61,6 +61,8 @@ impl<'ast> Group<'ast> {
         Ok(quote! {
             struct #group_name;
 
+            impl ::groupoid::Group for #group_name {}
+
             impl #marker_trait for #group_name {
                 #items_tokens
             }
