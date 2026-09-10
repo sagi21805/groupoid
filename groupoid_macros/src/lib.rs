@@ -14,6 +14,7 @@ mod blueprint;
 mod group;
 mod group_impl;
 mod group_trait;
+mod naming;
 mod proto;
 mod state;
 mod typestate;
