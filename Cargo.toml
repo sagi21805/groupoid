@@ -1,5 +1,5 @@
 [workspace]
 
-members = ["groupoid", "groupoid_macros"]
+members = ["groupoid", "groupoid_macros", "tests"]
 
 resolver = "2"
