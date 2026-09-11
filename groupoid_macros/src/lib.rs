@@ -15,10 +15,8 @@ mod group;
 mod group_impl;
 mod group_trait;
 mod naming;
-mod proto;
 mod state;
 mod typestate;
-// pub mod syntax_prototype;
 
 #[proc_macro_attribute]
 pub fn blueprint(_attr: TokenStream, item: TokenStream) -> TokenStream {
