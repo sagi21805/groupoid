@@ -24,7 +24,10 @@ mod typestate;
 pub fn blueprint(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let item_trait = parse_macro_input!(item as ItemTrait);
 
-    Blueprint::new(&item_trait).create_group_marker().into()
+    Blueprint::new(&item_trait)
+        .create_group_marker()
+        .unwrap_or_else(|e| e.into_compile_error())
+        .into()
 }
 
 #[proc_macro_attribute]
@@ -51,8 +54,18 @@ pub fn group_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 #[proc_macro_attribute]
 pub fn typestate(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let state = parse_macro_input!(attr as TypeState);
     let item_struct = parse_macro_input!(item as ItemStruct);
+
+    let state = if attr.is_empty() {
+        TypeState::infer(&item_struct)
+    } else {
+        syn::parse(attr)
+    };
+
+    let state = match state {
+        Ok(state) => state,
+        Err(e) => return e.into_compile_error().into(),
+    };
 
     TypeStateArg::new(&state, &item_struct)
         .generate_has_state_impl()
