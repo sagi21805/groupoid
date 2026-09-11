@@ -11,8 +11,9 @@ impl<'ast> Blueprint<'ast> {
         Blueprint { inner }
     }
 
-    pub fn create_group_marker(&self) -> TokenStream {
-        let marker_name = format_ident!("{}GroupMarker", &self.inner.ident);
+    pub fn create_group_marker(&self) -> syn::Result<TokenStream> {
+        let trait_ident = &self.inner.ident;
+        let marker_name = format_ident!("{}GroupMarker", trait_ident);
         let type_definitions: Vec<&TraitItemType> = self
             .inner
             .items
@@ -26,25 +27,35 @@ impl<'ast> Blueprint<'ast> {
             })
             .collect();
 
-        let type_idents = type_definitions.iter().map(|t| &t.ident);
+        // Exactly one associated type keeps `#[group]`'s `#[size(N)]` (and
+        // the `::groupoid::SizedGroup<SIZE>` it implements) unambiguous
+        // about which type it's describing, with no discriminator needed.
+        let [type_definition] = *type_definitions.as_slice() else {
+            return Err(syn::Error::new_spanned(
+                &self.inner.ident,
+                format!(
+                    "`#[blueprint]` requires exactly one associated type, found {}",
+                    type_definitions.len()
+                ),
+            ));
+        };
+        let assoc_ident = &type_definition.ident;
 
         let mut original = self.inner.clone();
 
         let marker_type = parse_quote! {
-            type Marker: #marker_name<
-                #( #type_idents = Self::#type_idents ),*
-            >;
+            type Marker: #marker_name<#assoc_ident = Self::#assoc_ident>;
         };
 
         original.items.push(TraitItem::Type(marker_type));
 
-        quote! {
+        Ok(quote! {
 
             #original
 
             trait #marker_name {
-                #(#type_definitions)*
+                #type_definition
             }
-        }
+        })
     }
 }
