@@ -5,7 +5,7 @@ use syn::{
     parse_quote,
 };
 
-use quote::quote;
+use quote::{format_ident, quote};
 
 /// Parses `state = SomeIdent`
 pub(crate) struct TypeState {
@@ -68,7 +68,8 @@ impl<'ast> TypeStateArg<'ast> {
         let state_ident = &self.state.ident;
         let mut item_struct = self.item_struct.clone();
 
-        // #[repr(C)] is useful so no matter what, the state field will always be in the same place.
+        // #[repr(C)] is useful so no matter what, the state field will always be in the
+        // same place.
         Self::ensure_repr_c(&mut item_struct);
 
         let type_param = Self::state_type_param(&mut item_struct, state_ident)?;
@@ -85,12 +86,22 @@ impl<'ast> TypeStateArg<'ast> {
             Self::has_single_state_projected_field(&self.item_struct.fields, state_ident)
                 .then(|| Self::sized_with_state_impl(&item_struct, state_ident));
 
+        // `TransmutableState` links `Self` to *every other* state that could
+        // be plugged into the same struct, at the same `SizedGroup` size, so
+        // it is only meaningful under the exact same condition as
+        // `SizedWithState` above.
+        let transmutable_state_impl =
+            Self::has_single_state_projected_field(&self.item_struct.fields, state_ident)
+                .then(|| Self::transmutable_state_impl(&item_struct, state_ident));
+
         Ok(quote! {
             #item_struct
 
             #with_state_impl
 
             #sized_with_state_impl
+
+            #transmutable_state_impl
         })
     }
 
@@ -138,7 +149,8 @@ impl<'ast> TypeStateArg<'ast> {
         }
     }
 
-    // Implement `SizedWithState<N>` if the type of the blueprint inside the struct is #[size(N)]
+    // Implement `SizedWithState<N>` if the type of the blueprint inside the struct
+    // is #[size(N)]
     fn sized_with_state_impl(item_struct: &ItemStruct, state_ident: &Ident) -> TokenStream {
         let struct_ident = &item_struct.ident;
         let (_, ty_generics, _) = item_struct.generics.split_for_impl();
@@ -164,7 +176,77 @@ impl<'ast> TypeStateArg<'ast> {
         }
     }
 
-    /// Ensure that the struct has exactly one field that uses the blueprint state item.
+    /// Implement `TransmutableState<Struct<S2>, N>` for `Struct<S>`, generic
+    /// over *every* other state `S2` that could be plugged in (given the same
+    /// bounds as `S`) and every `N` for which both states' blueprint values
+    /// carry that `SizedGroup` size. `item_struct` is expected to already
+    /// carry the `::groupoid::State` bound `#[typestate]` adds to `S`.
+    fn transmutable_state_impl(item_struct: &ItemStruct, state_ident: &Ident) -> TokenStream {
+        let struct_ident = &item_struct.ident;
+        let to_state_ident = format_ident!("__GroupoidToState");
+
+        // `To`'s type arguments: the same generics as `Self`, with the state
+        // parameter's *use* renamed to a second, independent identifier.
+        let mut to_generics = item_struct.generics.clone();
+        for param in to_generics.params.iter_mut() {
+            if let GenericParam::Type(tp) = param {
+                if tp.ident == *state_ident {
+                    tp.ident = to_state_ident.clone();
+                }
+            }
+        }
+        let (_, to_ty_generics, _) = to_generics.split_for_impl();
+        let (_, self_ty_generics, _) = item_struct.generics.split_for_impl();
+
+        // The impl needs both state identifiers in scope at once - clone the
+        // original (already `State`-bounded) state param under the second
+        // identifier and splice it in right after the first, so type params
+        // stay grouped ahead of any const generics.
+        let mut impl_generics_source = item_struct.generics.clone();
+        let state_index = impl_generics_source
+            .params
+            .iter()
+            .position(|p| matches!(p, GenericParam::Type(tp) if tp.ident == *state_ident))
+            .expect("state_ident is a type param of item_struct");
+        let mut to_state_param = match &impl_generics_source.params[state_index] {
+            GenericParam::Type(tp) => tp.clone(),
+            _ => unreachable!("state_index points at a GenericParam::Type"),
+        };
+        to_state_param.ident = to_state_ident.clone();
+        impl_generics_source
+            .params
+            .insert(state_index + 1, GenericParam::Type(to_state_param));
+        impl_generics_source
+            .params
+            .push(parse_quote!(const __GROUPOID_SIZE: usize));
+
+        impl_generics_source
+            .make_where_clause()
+            .predicates
+            .push(parse_quote!(
+                #state_ident::Marker: ::groupoid::SizedGroup<__GROUPOID_SIZE>
+            ));
+        impl_generics_source
+            .make_where_clause()
+            .predicates
+            .push(parse_quote!(
+                #to_state_ident::Marker: ::groupoid::SizedGroup<__GROUPOID_SIZE>
+            ));
+
+        let (impl_generics, _, where_clause) = impl_generics_source.split_for_impl();
+
+        quote! {
+            // SAFETY: `Self` and `To` are literally the same struct with
+            // only the state parameter swapped, and both sides' state
+            // values are pinned to the same `SizedGroup` size above.
+            unsafe impl #impl_generics ::groupoid::TransmutableState<
+                #struct_ident #to_ty_generics, __GROUPOID_SIZE
+            > for #struct_ident #self_ty_generics #where_clause {}
+        }
+    }
+
+    /// Ensure that the struct has exactly one field that uses the blueprint
+    /// state item.
     fn has_single_state_projected_field(fields: &Fields, state_ident: &Ident) -> bool {
         let field = match fields {
             Fields::Named(f) if f.named.len() == 1 => f.named.first(),
