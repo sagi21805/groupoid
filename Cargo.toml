@@ -1,5 +1,11 @@
 [workspace]
 
-members = ["groupoid", "groupoid_macros", "tests"]
+members = ["groupoid", "groupoid_macros"]
 
 resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/sagi21805/groupoid"
+rust-version = "1.85"
