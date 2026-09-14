@@ -1,0 +1,8 @@
+error[E0046]: not all trait items implemented, missing: `b`
+  --> tests/ui/group_impl_missing_default_bodied_method.rs:37:1
+   |
+27 | #[group_trait(by = Testing)]
+   | ---------------------------- `b` from trait
+...
+37 | impl<S: Testing + groupoid::State> Foo for Widget<S> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing `b` in implementation

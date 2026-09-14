@@ -1,0 +1,7 @@
+error: Expected tuple for the group states, e.g. (StateA, StateB ...)
+  --> tests/ui/group_self_type_not_tuple.rs:12:1
+   |
+12 | / impl Testing for StateA {
+13 | |     type Meta = u8;
+14 | | }
+   | |_^

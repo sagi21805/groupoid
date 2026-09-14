@@ -1,9 +1,10 @@
+#![allow(dead_code)]
+
 use groupoid_macros::blueprint;
 
 #[blueprint]
 trait Testing {
     type Meta;
-    type AnotherType: Sized;
 
     fn some_function();
 

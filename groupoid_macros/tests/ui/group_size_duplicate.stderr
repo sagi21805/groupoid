@@ -1,0 +1,5 @@
+error: only one `#[size(N)]` is allowed per associated type, found 2 on `Meta`
+  --> tests/ui/group_size_duplicate.rs:18:5
+   |
+18 |     #[size(8)]
+   |     ^^^^^^^^^^

@@ -1,0 +1,5 @@
+error: argument 1 of `combine` must be a simple identifier for #[group_trait] to forward it automatically
+  --> tests/ui/group_trait_method_arg_not_simple_ident.rs:11:23
+   |
+11 |     fn combine(&self, (x, y): (i32, i32)) -> i32;
+   |                       ^^^^^^

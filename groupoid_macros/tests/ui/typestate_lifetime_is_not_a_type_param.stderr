@@ -1,0 +1,5 @@
+error: expected identifier
+ --> tests/ui/typestate_lifetime_is_not_a_type_param.rs:7:21
+  |
+7 | #[typestate(state = 'a)]
+  |                     ^^

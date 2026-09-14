@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use groupoid_macros::{group, state};
 
 trait Testing {

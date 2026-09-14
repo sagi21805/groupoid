@@ -1,0 +1,5 @@
+error: Expected the types inside the group tuple to be path like
+  --> tests/ui/group_tuple_elem_not_path.rs:12:19
+   |
+12 | impl Testing for (&StateA,) {
+   |                   ^^^^^^^

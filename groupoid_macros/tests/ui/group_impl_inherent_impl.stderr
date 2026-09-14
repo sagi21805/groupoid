@@ -1,0 +1,7 @@
+error: Expected trait impl block, found regular.
+ --> tests/ui/group_impl_inherent_impl.rs:7:1
+  |
+7 | / impl Foo {
+8 | |     fn method(&self) {}
+9 | | }
+  | |_^

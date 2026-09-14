@@ -1,0 +1,5 @@
+error: only `#[size(N)]` is allowed on an associated type inside `#[group]`, found other attribute on `Meta`
+  --> tests/ui/group_type_non_size_attribute.rs:17:5
+   |
+17 |     #[allow(dead_code)]
+   |     ^^^^^^^^^^^^^^^^^^^

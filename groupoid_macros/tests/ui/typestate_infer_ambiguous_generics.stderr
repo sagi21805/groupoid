@@ -1,0 +1,5 @@
+error: `#[typestate]` needs `state = <Ident>` unless the struct has exactly one generic type parameter
+ --> tests/ui/typestate_infer_ambiguous_generics.rs:7:8
+  |
+7 | struct Foo<A, B> {
+  |        ^^^

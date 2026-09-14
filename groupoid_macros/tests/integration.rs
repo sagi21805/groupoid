@@ -1,10 +1,8 @@
 use groupoid_macros::{blueprint, group, state, typestate};
-use syn::ExprArray;
 
 #[blueprint]
 trait Testing {
     type Meta;
-    type AnotherType: Sized;
 }
 
 #[state]
@@ -21,7 +19,6 @@ pub struct StateD;
 #[group(TestGroup)]
 impl Testing for (StateA, StateB) {
     type Meta = usize;
-    type AnotherType = u64;
 }
 
 #[typestate(state = T)]
@@ -39,7 +36,6 @@ trait A {
 #[groupoid_macros::group(AnotherGroup)]
 impl Testing for (StateC, StateD) {
     type Meta = u64;
-    type AnotherType = u64;
 }
 
 #[groupoid_macros::group_impl(TestGroup)]

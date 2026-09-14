@@ -1,0 +1,5 @@
+error: #[group_trait] does not currently support generic parameters on the trait itself
+  --> tests/ui/group_trait_generic_trait.rs:10:10
+   |
+10 | trait Foo<T> {
+   |          ^^^
