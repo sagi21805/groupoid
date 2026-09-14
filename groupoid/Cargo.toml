@@ -1,7 +1,14 @@
 [package]
 name = "groupoid"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Typestate based grouping types for Rust"
+keywords = ["typestate", "state-machine", "groupoid"]
+categories = ["rust-patterns", "data-structures"]
+readme = "../README.md"
 
 [dependencies]
-groupoid_macros = { path = "../groupoid_macros" }
+groupoid_macros = { path = "../groupoid_macros", version = "0.1.0" }
