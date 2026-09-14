@@ -60,13 +60,9 @@ pub fn typestate(attr: TokenStream, item: TokenStream) -> TokenStream {
         syn::parse(attr)
     };
 
-    let state = match state {
-        Ok(state) => state,
-        Err(e) => return e.into_compile_error().into(),
-    };
-
-    TypeStateArg::new(&state, &item_struct)
-        .generate_has_state_impl()
+    state
+        .and_then(|state| TypeStateArg::new(state, item_struct))
+        .map(|arg| arg.generate_has_state_impl())
         .unwrap_or_else(|e| e.into_compile_error())
         .into()
 }
