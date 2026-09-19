@@ -7,7 +7,7 @@ use crate::{
     group_impl::GroupImpl,
     group_trait::{GroupTrait, GroupTraitArgs},
     state::State,
-    typestate::{TypeState, TypeStateArg},
+    typestate::{TypeState, TypeStateArgs},
 };
 
 mod blueprint;
@@ -53,16 +53,13 @@ pub fn group_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn typestate(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item_struct = parse_macro_input!(item as ItemStruct);
+    // An empty attribute parses to the default `TypeStateArgs`, whose
+    // `resolve_state_and_align` infers the state parameter - so there is
+    // no separate no-argument path.
+    let args = parse_macro_input!(attr as TypeStateArgs);
 
-    let state = if attr.is_empty() {
-        TypeState::infer(&item_struct)
-    } else {
-        syn::parse(attr)
-    };
-
-    state
-        .and_then(|state| TypeStateArg::new(state, item_struct))
-        .map(|arg| arg.generate_has_state_impl())
+    TypeState::new(args, item_struct)
+        .map(|typestate| typestate.generate_typestate_impls())
         .unwrap_or_else(|e| e.into_compile_error())
         .into()
 }

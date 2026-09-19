@@ -1,12 +1,139 @@
+use extend::ext;
+use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-    FnArg, ItemTrait, Pat, Token, TraitItem, TypePath,
+    FnArg, Ident, ItemTrait, Pat, PatIdent, PatType, Signature, Token, TraitItem, TraitItemFn,
+    TypePath,
     parse::{Parse, ParseStream},
 };
 
-mod kw {
-    syn::custom_keyword!(by);
+pub struct GroupTrait<'ast> {
+    args: &'ast GroupTraitArgs,
+    item_trait: &'ast ItemTrait,
+    marker_trait: TypePath,
+    helper_ident: Ident,
+    helper_mod_ident: Ident,
 }
+
+impl<'ast> GroupTrait<'ast> {
+    pub fn new(args: &'ast GroupTraitArgs, item_trait: &'ast ItemTrait) -> GroupTrait<'ast> {
+        let mut marker_trait = args.ty.clone();
+        if let Some(last) = marker_trait.path.segments.last_mut() {
+            last.ident = format_ident!("{}GroupMarker", last.ident);
+        }
+
+        GroupTrait {
+            args,
+            item_trait,
+            marker_trait,
+            helper_ident: crate::naming::helper_trait_ident(&item_trait.ident),
+            helper_mod_ident: crate::naming::helper_mod_ident(&item_trait.ident),
+        }
+    }
+
+    pub fn generate_group_trait(&self) -> syn::Result<TokenStream> {
+        let GroupTrait {
+            marker_trait,
+            helper_ident,
+            helper_mod_ident,
+            ..
+        } = self;
+
+        let ItemTrait {
+            attrs,
+            vis,
+            unsafety,
+            ident: trait_ident,
+            generics,
+            colon_token,
+            supertraits,
+            items,
+            ..
+        } = self.item_trait;
+
+        if !generics.params.is_empty() {
+            return Err(syn::Error::new_spanned(
+                generics,
+                "#[group_trait] does not currently support generic parameters on the trait itself",
+            ));
+        }
+
+        // All the function declarations of the trait.
+        let declarations: Vec<TokenStream> = items
+            .iter()
+            .map(|item| match item {
+                TraitItem::Fn(TraitItemFn { attrs, sig, .. }) => quote!(#(#attrs)* #sig;),
+                other => quote!(#other),
+            })
+            .collect();
+
+        // All the delegated function for the helper trait.
+        let delegations = items
+            .iter()
+            .filter_map(|item| match item {
+                TraitItem::Fn(method) => Some(self.delegate(method)),
+                _ => None,
+            })
+            .collect::<syn::Result<Vec<_>>>()?;
+
+        let blueprint = &self.args.ty;
+        let concrete_marker = self.marker();
+
+        Ok(quote! {
+            #(#attrs)*
+            #unsafety #vis trait #trait_ident #colon_token #supertraits {
+                #(#declarations)*
+            }
+
+            #[doc(hidden)]
+            #[allow(non_snake_case)]
+            #vis mod #helper_mod_ident {
+                use super::*;
+
+                #(#attrs)*
+                pub trait #helper_ident<Marker: #marker_trait> {
+                    #(#declarations)*
+                }
+            }
+
+            impl<T> #trait_ident for T
+            where
+                T: ::groupoid::WithState,
+                T::State: #blueprint,
+                T: #helper_mod_ident::#helper_ident<#concrete_marker>,
+            {
+                #(#delegations)*
+            }
+        })
+    }
+
+    /// `<T::State as `blueprint`>::Marker`
+    fn marker(&self) -> TokenStream {
+        let blueprint = &self.args.ty;
+        quote!(<T::State as #blueprint>::Marker)
+    }
+
+    /// Change original trait function to call the helper trait impl instead.
+    fn delegate(&self, method: &TraitItemFn) -> syn::Result<TokenStream> {
+        let sig = &method.sig;
+        let args = sig.forwarded_args()?;
+
+        let GroupTrait {
+            helper_ident,
+            helper_mod_ident,
+            ..
+        } = self;
+        let marker = self.marker();
+        let method_ident = &sig.ident;
+
+        Ok(quote! {
+            #sig {
+                <T as #helper_mod_ident::#helper_ident<#marker>>::#method_ident(#(#args),*)
+            }
+        })
+    }
+}
+
 /// Parsed `#[group_trait(...)]` arguments.
 pub struct GroupTraitArgs {
     _by: kw::by,
@@ -24,157 +151,49 @@ impl Parse for GroupTraitArgs {
     }
 }
 
-pub struct GroupTrait<'ast> {
-    args: &'ast GroupTraitArgs,
-    item_trait: &'ast ItemTrait,
+mod kw {
+    syn::custom_keyword!(by);
 }
 
-impl<'ast> GroupTrait<'ast> {
-    pub fn new(args: &'ast GroupTraitArgs, item_trait: &'ast ItemTrait) -> GroupTrait<'ast> {
-        GroupTrait { args, item_trait }
-    }
-
-    pub fn generate_group_trait(&self) -> syn::Result<proc_macro2::TokenStream> {
-        let ItemTrait {
-            attrs,
-            vis,
-            unsafety,
-            ident: trait_ident,
-            generics,
-            colon_token,
-            supertraits,
-            items,
-            ..
-        } = self.item_trait;
-
-        if !generics.params.is_empty() {
+#[ext]
+impl Signature {
+    /// The forwarded arguments for helper trait impl.
+    fn forwarded_args(&self) -> syn::Result<Vec<TokenStream>> {
+        if let Some(asyncness) = &self.asyncness {
             return Err(syn::Error::new_spanned(
-                &generics,
-                "#[group_trait] does not currently support generic parameters \
-                 on the trait itself",
+                asyncness,
+                "`async fn` is not supported by #[group_trait] yet",
             ));
         }
 
-        let mut marker_trait = self.args.ty.clone();
-        if let Some(last) = marker_trait.path.segments.last_mut() {
-            last.ident = format_ident!("{}GroupMarker", last.ident);
+        if self.receiver().is_none() {
+            return Err(syn::Error::new_spanned(
+                self,
+                format!(
+                    "method `{}` must take `self`: #[group_trait] requires every method to have a \
+                     receiver",
+                    self.ident
+                ),
+            ));
         }
 
-        let has_state_trait = quote!(::groupoid::WithState);
-        let metadata_trait = &self.args.ty;
-
-        // Fixed associated-type names, matching the example this macro is based on.
-        let state_assoc = format_ident!("State");
-        let marker_assoc = format_ident!("Marker");
-
-        let helper_ident = crate::naming::helper_trait_ident(trait_ident);
-        let helper_mod_ident = crate::naming::helper_mod_ident(trait_ident);
-
-        // `<T::State as Metadata>::Marker`, the concrete marker type used to
-        // pick which `AHelper` impl applies to a given `T`.
-        let concrete_marker = quote!(<T::#state_assoc as #metadata_trait>::#marker_assoc);
-
-        let mut trait_items = Vec::with_capacity(items.len());
-        let mut helper_items = Vec::with_capacity(items.len());
-        let mut delegated = Vec::with_capacity(items.len());
-
-        for item in items {
-            match item.clone() {
-                TraitItem::Fn(mut method) => {
-                    // Both the public trait and the helper trait declare the
-                    // signature only; the real body lives in the blanket impl
-                    // (for the public trait) and in each marker-specific impl
-                    // (for the helper trait).
-                    method.default = None;
-                    method.semi_token = Some(Default::default());
-
-                    let sig = method.sig.clone();
-                    let method_ident = sig.ident.clone();
-                    let is_async = sig.asyncness.is_some();
-                    let has_receiver = matches!(sig.inputs.first(), Some(FnArg::Receiver(_)));
-
-                    if !has_receiver {
-                        return Err(syn::Error::new_spanned(
-                            &sig,
-                            format!(
-                                "method `{method_ident}` must take `self`: \
-                                 #[group_trait] requires every method to have a receiver"
-                            ),
-                        ));
-                    }
-
-                    let mut call_args = vec![quote!(self)];
-                    for (idx, fn_arg) in sig.inputs.iter().enumerate() {
-                        if let FnArg::Typed(pat_type) = fn_arg {
-                            match &*pat_type.pat {
-                                Pat::Ident(pat_ident) => {
-                                    let id = &pat_ident.ident;
-                                    call_args.push(quote!(#id));
-                                }
-                                other_pat => {
-                                    return Err(syn::Error::new_spanned(
-                                        other_pat,
-                                        format!(
-                                            "argument {idx} of `{method_ident}` must be a \
-                                             simple identifier for #[group_trait] to \
-                                             forward it automatically"
-                                        ),
-                                    ));
-                                }
-                            }
-                        }
-                    }
-
-                    let maybe_await = if is_async { quote!(.await) } else { quote!() };
-
-                    delegated.push(quote! {
-                        #sig {
-                            <T as #helper_mod_ident::#helper_ident<#concrete_marker>>::#method_ident(
-                                #(#call_args),*
-                            ) #maybe_await
-                        }
-                    });
-
-                    trait_items.push(TraitItem::Fn(method.clone()));
-                    helper_items.push(TraitItem::Fn(method));
-                }
-                other => {
-                    // Consts / associated types are passed through on both
-                    // trait declarations verbatim; they are not auto-delegated.
-                    trait_items.push(other.clone());
-                    helper_items.push(other);
-                }
-            }
-        }
-
-        let colon = colon_token.map(|c| quote!(#c #supertraits));
-
-        let expanded = quote! {
-            #(#attrs)*
-            #unsafety #vis trait #trait_ident #colon {
-                #(#trait_items)*
-            }
-
-            #[allow(non_snake_case)]
-            #vis mod #helper_mod_ident {
-                use super::*;
-
-                #(#attrs)*
-                pub trait #helper_ident<Marker: #marker_trait> {
-                    #(#helper_items)*
-                }
-            }
-
-            impl<T> #trait_ident for T
-            where
-                T: #has_state_trait,
-                T::#state_assoc: #metadata_trait,
-                T: #helper_mod_ident::#helper_ident<#concrete_marker>,
-            {
-                #(#delegated)*
-            }
-        };
-
-        Ok(expanded)
+        self.inputs
+            .iter()
+            .enumerate()
+            .map(|(index, fn_arg)| match fn_arg {
+                FnArg::Receiver(_) => Ok(quote!(self)),
+                FnArg::Typed(PatType { pat, .. }) => match &**pat {
+                    Pat::Ident(PatIdent { ident, .. }) => Ok(quote!(#ident)),
+                    other => Err(syn::Error::new_spanned(
+                        other,
+                        format!(
+                            "argument {index} of `{}` must be a simple identifier for \
+                             #[group_trait] to forward it automatically",
+                            self.ident
+                        ),
+                    )),
+                },
+            })
+            .collect()
     }
 }
