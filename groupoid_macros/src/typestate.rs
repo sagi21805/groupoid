@@ -6,6 +6,7 @@ use syn::{
     LitInt, Path, PathArguments, Token, Type, TypeParam, TypePath, WherePredicate,
     parse::{Parse, ParseStream},
     parse_quote,
+    visit::{self, Visit},
 };
 
 pub(crate) struct TypeState {
@@ -515,12 +516,9 @@ impl ItemStruct {
     /// pinned by the state's `SizedGroup`/`AlignedGroup` impls, so
     /// `SizedWithState` and `TransmutableState` mean something
     fn require_transmutable_layout(&self, state_ident: &Ident) -> syn::Result<()> {
-        let mut saw_projection = false;
-
         for field in self.fields.iter() {
             match field.ty.shape(state_ident) {
-                FieldShape::Projection => saw_projection = true,
-                FieldShape::Zst | FieldShape::Independent => {}
+                FieldShape::Zst | FieldShape::Independent | FieldShape::Projection => {}
                 FieldShape::Wrapped => {
                     return Err(syn::Error::new_spanned(
                         &field.ty,
@@ -536,26 +534,11 @@ impl ItemStruct {
             }
         }
 
-        if !saw_projection {
-            return Err(syn::Error::new_spanned(
-                &self.ident,
-                format!(
-                    "`unsafe_transmute = true` needs at least one field to be a bare \
-                     `{state_ident}::Assoc` projection: without one there is nothing to transmute \
-                     between states"
-                ),
-            ));
-        }
-
         Ok(())
     }
 
     /// The one associated type the fields project through the state
-    /// (`Value` in `S::Value`), at any depth, if any.
-    ///
-    /// `restate_with`'s leaf conversion is typed by this projection, so a
-    /// struct projecting two distinct ones (`S::Value` *and* `S::Marker`)
-    /// would leave it ambiguous and is rejected.
+    /// (`Value` in `S::Value`)
     fn unique_projection(&self, state_ident: &Ident) -> syn::Result<Option<Ident>> {
         let mut projection: Option<Ident> = None;
 
@@ -656,7 +639,7 @@ enum FieldShape {
 impl Type {
     /// Classifies this type for `require_transmutable_layout`.
     fn shape(&self, state_ident: &Ident) -> FieldShape {
-        if self.is_state_type(state_ident) {
+        if self.state_projection(state_ident).is_some() {
             FieldShape::Projection
         } else if self.is_zst() {
             FieldShape::Zst
@@ -667,30 +650,45 @@ impl Type {
         }
     }
 
-    /// Check if a type is a state type like `S::Value`.
-    fn is_state_type(&self, state_ident: &Ident) -> bool {
-        let Type::Path(TypePath {
-            qself: None, path, ..
-        }) = self
-        else {
-            return false;
-        };
-        if path.leading_colon.is_some() || path.segments.len() != 2 {
-            return false;
+    /// This type with its parentheses, and the invisible groups a
+    /// `macro_rules!` `$ty` substitution wraps it in, stripped off.
+    fn peeled(&self) -> &Type {
+        match self {
+            Type::Paren(paren) => paren.elem.peeled(),
+            Type::Group(group) => group.elem.peeled(),
+            ty => ty,
         }
-        let state_seg = &path.segments[0];
-        let type_seg = &path.segments[1];
-        state_seg.ident == *state_ident
-            && state_seg.arguments == PathArguments::None
-            && type_seg.arguments == PathArguments::None
+    }
+
+    /// `Value` when this type is a state type like `S::Value`.
+    fn state_projection(&self, state_ident: &Ident) -> Option<&Ident> {
+        let Type::Path(TypePath {
+            qself: None,
+            path:
+                Path {
+                    leading_colon: None,
+                    segments,
+                },
+            ..
+        }) = self.peeled()
+        else {
+            return None;
+        };
+
+        match segments.iter().collect::<Vec<_>>().as_slice() {
+            [state_seg, type_seg] => (state_seg.ident == *state_ident
+                && state_seg.arguments == PathArguments::None
+                && type_seg.arguments == PathArguments::None)
+                .then_some(&type_seg.ident),
+            _ => None,
+        }
     }
 
     /// A fresh value of this type, when its spelling shows it to be a ZST:
     /// `()`, `PhantomData<..>` or `PhantomPinned`.
     fn zst_value(&self) -> Option<TokenStream> {
-        let path = match self {
+        let path = match self.peeled() {
             Type::Tuple(tuple) => return tuple.elems.is_empty().then(|| quote!(())),
-            Type::Paren(paren) => return paren.elem.zst_value(),
             Type::Path(TypePath {
                 qself: None, path, ..
             }) => path,
@@ -711,67 +709,19 @@ impl Type {
 
     /// Every `Assoc` of an `S::Assoc` written anywhere inside this type, so
     /// `Option<S::Value>` yields `Value` just as a bare `S::Value` does.
-    ///
-    /// A token scan like `mentions_ident`; `S` is only a projection head
-    /// when it is not itself preceded by `::`.
     fn projections_through(&self, state_ident: &Ident) -> Vec<Ident> {
-        fn scan(tokens: TokenStream, state_ident: &Ident, out: &mut Vec<Ident>) {
-            let tokens: Vec<TokenTree> = tokens.into_iter().collect();
-            for (i, tt) in tokens.iter().enumerate() {
-                match tt {
-                    TokenTree::Group(group) => scan(group.stream(), state_ident, out),
-                    TokenTree::Ident(ident) if ident == state_ident => {
-                        if i > 0 && tokens[i - 1].is_colon() {
-                            continue;
-                        }
-                        match tokens.get(i + 1..i + 4) {
-                            Some([a, b, TokenTree::Ident(assoc)])
-                                if a.is_colon() && b.is_colon() =>
-                            {
-                                out.push(assoc.clone());
-                            }
-                            _ => {}
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        let mut out = Vec::new();
-        scan(self.to_token_stream(), state_ident, &mut out);
-        out
+        let mut projections = Projections {
+            state_ident,
+            found: Vec::new(),
+        };
+        projections.visit_type(self);
+        projections.found
     }
 
     /// This type's tokens with every `from` that heads a path replaced by
     /// `to`, e.g. `Pair<S::Value>` -> `Pair<__GroupoidTargetState::Value>`.
     fn with_ident_renamed(&self, from: &Ident, to: &Ident) -> TokenStream {
-        fn rename(tokens: TokenStream, from: &Ident, to: &Ident) -> TokenStream {
-            let mut after_colon = false;
-            tokens
-                .into_iter()
-                .map(|tt| {
-                    let renamed = match tt {
-                        TokenTree::Ident(ref ident) if ident == from && !after_colon => {
-                            TokenTree::Ident(to.clone())
-                        }
-                        TokenTree::Group(group) => {
-                            let mut renamed = proc_macro2::Group::new(
-                                group.delimiter(),
-                                rename(group.stream(), from, to),
-                            );
-                            renamed.set_span(group.span());
-                            TokenTree::Group(renamed)
-                        }
-                        tt => tt,
-                    };
-                    after_colon = renamed.is_colon();
-                    renamed
-                })
-                .collect()
-        }
-
-        rename(self.to_token_stream(), from, to)
+        self.to_token_stream().with_ident_renamed(from, to)
     }
 
     /// The expression rebuilding a value of this type for the target
@@ -791,7 +741,7 @@ impl Type {
         if !self.mentions_ident(cx.state_ident) {
             return src;
         }
-        if self.is_state_type(cx.state_ident) {
+        if self.state_projection(cx.state_ident).is_some() {
             let leaf = cx.leaf;
             return quote!(#leaf(#src));
         }
@@ -800,8 +750,7 @@ impl Type {
         }
 
         let elem = format_ident!("__groupoid_elem");
-        match self {
-            Type::Paren(paren) => paren.elem.restate_expr(cx, src, predicates),
+        match self.peeled() {
             Type::Tuple(tuple) => {
                 let bindings: Vec<Ident> = (0..tuple.elems.len())
                     .map(|i| format_ident!("__groupoid_elem{i}"))
@@ -870,21 +819,63 @@ impl Type {
     }
 
     /// Whether `ident` appears anywhere inside this type.
-    ///
-    /// A token scan rather than `syn::visit`, which sits behind a syn
-    /// feature this crate does not enable. It errs in the safe direction: a
-    /// false positive (an unrelated `other::S`) only withholds an `unsafe
-    /// impl`.
     fn mentions_ident(&self, ident: &Ident) -> bool {
-        fn scan(tokens: TokenStream, ident: &Ident) -> bool {
-            tokens.into_iter().any(|tt| match tt {
-                TokenTree::Ident(i) => i == *ident,
-                TokenTree::Group(g) => scan(g.stream(), ident),
-                _ => false,
-            })
-        }
+        self.to_token_stream().mentions_ident(ident)
+    }
+}
 
-        scan(self.to_token_stream(), ident)
+/// Collects the `Assoc` of every `S::Assoc` among the types it visits,
+/// for `projections_through`.
+struct Projections<'a> {
+    state_ident: &'a Ident,
+    found: Vec<Ident>,
+}
+
+impl<'ast> Visit<'ast> for Projections<'_> {
+    fn visit_type(&mut self, ty: &'ast Type) {
+        match ty.state_projection(self.state_ident) {
+            Some(assoc) => self.found.push(assoc.clone()),
+            None => visit::visit_type(self, ty),
+        }
+    }
+}
+
+/// The token scans behind the `Type` methods of the same names, recursing
+/// into every group.
+#[ext]
+impl TokenStream {
+    /// These tokens with every `from` not preceded by `:` replaced by `to`.
+    fn with_ident_renamed(self, from: &Ident, to: &Ident) -> TokenStream {
+        let mut after_colon = false;
+        self.into_iter()
+            .map(|tt| {
+                let renamed = match tt {
+                    TokenTree::Ident(ref ident) if ident == from && !after_colon => {
+                        TokenTree::Ident(to.clone())
+                    }
+                    TokenTree::Group(group) => {
+                        let mut renamed = proc_macro2::Group::new(
+                            group.delimiter(),
+                            group.stream().with_ident_renamed(from, to),
+                        );
+                        renamed.set_span(group.span());
+                        TokenTree::Group(renamed)
+                    }
+                    tt => tt,
+                };
+                after_colon = renamed.is_colon();
+                renamed
+            })
+            .collect()
+    }
+
+    /// Whether `ident` appears anywhere in these tokens.
+    fn mentions_ident(self, ident: &Ident) -> bool {
+        self.into_iter().any(|tt| match tt {
+            TokenTree::Ident(i) => i == *ident,
+            TokenTree::Group(g) => g.stream().mentions_ident(ident),
+            _ => false,
+        })
     }
 }
 
@@ -927,7 +918,7 @@ impl Path {
 
 #[ext]
 impl TokenTree {
-    /// Whether this token is one `:`; a `::` is two of them in a row.
+    /// Whether this token is one `:`.
     fn is_colon(&self) -> bool {
         matches!(self, TokenTree::Punct(p) if p.as_char() == ':')
     }

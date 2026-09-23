@@ -68,3 +68,31 @@ fn target_state_inferred_from_expected_type() {
     let big: Wrap<Big> = unsafe { small.transmute_state() };
     assert_eq!(big.value, 3);
 }
+
+// A parenthesised projection, or one substituted through a `macro_rules!`
+// `$ty` (which reaches the attribute wrapped in an invisible group), is
+// still a bare projection.
+#[typestate(state = S, unsafe_transmute = true)]
+#[allow(unused_parens)]
+struct Paren<S: Meta> {
+    value: (S::Value),
+}
+
+macro_rules! wrap_via_macro {
+    ($ty:ty) => {
+        #[typestate(state = S, unsafe_transmute = true)]
+        struct ViaMacro<S: Meta> {
+            value: $ty,
+        }
+    };
+}
+wrap_via_macro!(S::Value);
+
+#[test]
+fn transmute_state_sees_through_parens_and_macro_groups() {
+    let big: Paren<Big> = unsafe { Paren::<Small> { value: 3 }.transmute_state::<Big>() };
+    assert_eq!(big.value, 3);
+
+    let big: ViaMacro<Big> = unsafe { ViaMacro::<Small> { value: 5 }.transmute_state::<Big>() };
+    assert_eq!(big.value, 5);
+}
