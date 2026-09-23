@@ -10,7 +10,7 @@
 //
 // Each is reported at the `#[typestate]` site, against the offending field
 // type. Without the flag the same structs are accepted as they are and still
-// get `restate` / `restate_with`.
+// get `restate_with`.
 #![allow(dead_code)]
 use groupoid_macros::{blueprint, group, state, typestate};
 

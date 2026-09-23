@@ -1,4 +1,4 @@
-error: `#[typestate]` cannot generate `restate` for a struct that projects both `S::Value` and `S::Marker`: the leaf conversion would be ambiguous
+error: `#[typestate]` cannot generate `restate_with` for a struct that projects both `S::Value` and `S::Marker`: the leaf conversion would be ambiguous
   --> tests/ui/restate_ambiguous_projection.rs:16:16
    |
 16 |     marker: S::Marker,

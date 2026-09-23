@@ -1,9 +1,8 @@
 //! The by-value transition `#[typestate]` generates next to the in-place
-//! transmute: `restate_with` (safe, the caller converts each projection)
-//! and `unsafe fn restate` (each projection is bit-reinterpreted under the
-//! shared size pin). Both rebuild the struct field by field, so they exist
-//! for every struct that projects through its state, including the shapes
-//! that disqualify the in-place path (`Option<S::Value>` and friends).
+//! transmute: `restate_with`, where the caller converts each projection. It
+//! rebuilds the struct field by field, so it exists for every struct that
+//! projects through its state, including the shapes that disqualify the
+//! in-place path (`Option<S::Value>` and friends).
 //!
 //! The macro sees through `Option`, arrays, `Box` and tuples by itself; any
 //! other wrapper goes through a user `Restate` impl.
@@ -88,12 +87,6 @@ fn assert_round_trip(big: Wrap<Big>) {
 }
 
 #[test]
-fn restate_reinterprets_every_projection_under_the_size_pin() {
-    let big: Wrap<Big> = unsafe { sample().restate::<Big, _>() };
-    assert_round_trip(big);
-}
-
-#[test]
 fn restate_with_converts_every_projection_through_the_leaf() {
     let mut calls = 0;
     let big: Wrap<Big> = sample().restate_with(|v| {
@@ -120,7 +113,7 @@ fn restate_with_sees_none_without_calling_the_leaf() {
 }
 
 // --- the `Option` field would be rejected by `unsafe_transmute = true`,
-// yet `restate` exists ---
+// yet `restate_with` exists ---
 
 #[typestate(state = S)]
 struct NotTransmutable<S: Meta> {
@@ -129,12 +122,10 @@ struct NotTransmutable<S: Meta> {
 
 #[test]
 fn a_struct_without_the_in_place_path_still_restates_by_value() {
-    let big: NotTransmutable<Big> = unsafe {
-        NotTransmutable::<Small> {
-            value: Some(0xdead_beef),
-        }
-        .restate::<Big, 4>()
-    };
+    let big: NotTransmutable<Big> = NotTransmutable::<Small> {
+        value: Some(0xdead_beef),
+    }
+    .restate_with(|v| v as i32);
     assert_eq!(big.value, Some(0xdead_beefu32 as i32));
 }
 
@@ -163,11 +154,11 @@ struct Positional<S: Meta>(u8, S::Value, Option<S::Value>);
 
 #[test]
 fn tuple_structs_are_rebuilt_positionally() {
-    let big: Positional<Big> = unsafe { Positional::<Small>(1, 2, Some(3)).restate::<Big, 4>() };
+    let big: Positional<Big> = Positional::<Small>(1, 2, Some(3)).restate_with(|v| v as i32);
     assert_eq!((big.0, big.1, big.2), (1, 2, Some(3)));
 }
 
-// --- forced alignment: `restate` is bounded on size alone ----------------
+// --- forced alignment still generates `restate_with` ---------------------
 
 #[state]
 struct Wide;
@@ -193,12 +184,12 @@ struct Forced<S: Meta> {
 }
 
 #[test]
-fn forced_alignment_mode_still_generates_restate() {
+fn forced_alignment_mode_still_generates_restate_with() {
     let wide = Forced::<Wide> {
         value: u64::from_ne_bytes([1, 2, 3, 4, 5, 6, 7, 8]),
         tag: 9,
     };
-    let bytes: Forced<Bytes> = unsafe { wide.restate::<Bytes, _>() };
+    let bytes: Forced<Bytes> = wide.restate_with(u64::to_ne_bytes);
     assert_eq!(bytes.value, [1, 2, 3, 4, 5, 6, 7, 8]);
     assert_eq!(bytes.tag, 9);
 }
@@ -214,12 +205,12 @@ struct Unforced<S: Meta> {
 }
 
 #[test]
-fn restate_ignores_alignment_altogether() {
+fn restate_with_ignores_alignment_altogether() {
     let wide = Unforced::<Wide> {
         value: u64::from_ne_bytes([1, 2, 3, 4, 5, 6, 7, 8]),
         tag: 9,
     };
-    let bytes: Unforced<Bytes> = unsafe { wide.restate::<Bytes, 8>() };
+    let bytes: Unforced<Bytes> = wide.restate_with(u64::to_ne_bytes);
     assert_eq!(bytes.value, [1, 2, 3, 4, 5, 6, 7, 8]);
     assert_eq!(bytes.tag, 9);
 }

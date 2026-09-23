@@ -1,8 +1,8 @@
 // `#[typestate]` sees through `Option`, arrays, `Box` and tuples when
-// generating `restate`; any other wrapper around a projection is handed to
-// `groupoid::Restate`. That is not an error at the `#[typestate]` site - the
+// generating `restate_with`; any other wrapper around a projection is handed
+// to `groupoid::Restate`. That is not an error at the `#[typestate]` site - the
 // bound is carried on the generated method - so a missing impl surfaces as an
-// ordinary trait-bound error where `restate` is called.
+// ordinary trait-bound error where `restate_with` is called.
 #![allow(dead_code)]
 use groupoid_macros::{blueprint, group, state, typestate};
 
