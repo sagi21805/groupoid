@@ -16,6 +16,7 @@ mod group_impl;
 mod group_trait;
 mod naming;
 mod state;
+mod syn_ext;
 mod typestate;
 
 #[proc_macro_attribute]
