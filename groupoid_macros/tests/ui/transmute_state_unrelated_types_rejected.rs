@@ -1,8 +1,10 @@
-// `TransmuteState::transmute_state` (and friends) require
-// `Self: TransmutableState<To, _>`, which `#[typestate]` only ever generates
-// between two states of the *same* struct - two same-sized but otherwise
-// unrelated `WithState` types must not be castable into each other just
-// because `size_of` happens to match.
+// `TransmuteState::transmute_state` (and friends) take only the target state
+// and land in `TransmutableState::Target`, which `#[typestate]` always sets
+// to the *same* struct with the state swapped. So two same-sized but
+// otherwise unrelated `WithState` types are not merely rejected by a trait
+// bound - there is no way to even ask for the cast. `WrapA<A>` into state `A`
+// is `WrapA<A>`, and handing that back as a `WrapB<A>` is an ordinary
+// mismatched-types error.
 #![allow(dead_code)]
 use groupoid::TransmuteState;
 use groupoid_macros::{blueprint, group, state, typestate};
@@ -29,18 +31,18 @@ impl Meta for (B,) {
     type Value = u32;
 }
 
-#[typestate(state = S)]
+#[typestate(state = S, unsafe_transmute = true)]
 struct WrapA<S: Meta> {
     value: S::Value,
 }
 
-#[typestate(state = S)]
+#[typestate(state = S, unsafe_transmute = true)]
 struct WrapB<S: Meta> {
     value: S::Value,
 }
 
 fn cast(w: WrapA<A>) -> WrapB<A> {
-    unsafe { w.transmute_state() }
+    unsafe { w.transmute_state::<A>() }
 }
 
 fn main() {

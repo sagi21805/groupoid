@@ -1,0 +1,28 @@
+error[E0277]: the group `BytesGroup` is not 8 byte aligned
+  --> tests/ui/typestate_align_disagreement.rs:47:32
+   |
+47 |     let _bytes = unsafe { wide.transmute_state::<Bytes>() };
+   |                                ^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `AlignedGroup<8>` is not implemented for `BytesGroup`
+      but trait `AlignedGroup<1>` is implemented for it
+  --> tests/ui/typestate_align_disagreement.rs:33:1
+   |
+33 | #[group(BytesGroup)]
+   | ^^^^^^^^^^^^^^^^^^
+note: required for `Wrap<Wide>` to implement `TransmutableState<Bytes, 8, 8>`
+  --> tests/ui/typestate_align_disagreement.rs:39:1
+   |
+39 | #[typestate(state = S, unsafe_transmute = true)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound introduced here
+40 | struct Wrap<S: Meta> {
+   |        ^^^^^^^^^^^^^
+note: required by a bound in `transmute_state`
+  --> $WORKSPACE/groupoid/src/lib.rs
+   |
+   |     unsafe fn transmute_state<To: State>(self) -> Self::Target
+   |               --------------- required by a bound in this associated function
+   |     where
+   |         Self: TransmutableState<To, SIZE, ALIGN>,
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `TransmuteState::transmute_state`
+   = note: this error originates in the attribute macro `group` which comes from the expansion of the attribute macro `typestate` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,0 +1,17 @@
+error: `unsafe_transmute = true` needs every field to be a bare `S::Assoc` projection, a ZST, or independent of `S`; this one reaches the state through a wrapper, so the two states' layouts cannot be pinned to each other - use `restate` / `restate_with` instead
+  --> tests/ui/typestate_disqualifying_field_shapes.rs:33:13
+   |
+33 |     values: [S::Value; 2],
+   |             ^^^^^^^^^^^^^
+
+error: `unsafe_transmute = true` needs every field to be a bare `S::Assoc` projection, a ZST, or independent of `S`; this one reaches the state through a wrapper, so the two states' layouts cannot be pinned to each other - use `restate` / `restate_with` instead
+  --> tests/ui/typestate_disqualifying_field_shapes.rs:39:13
+   |
+39 |     marker: S,
+   |             ^
+
+error: `unsafe_transmute = true` needs every field to be a bare `S::Assoc` projection, a ZST, or independent of `S`; this one reaches the state through a wrapper, so the two states' layouts cannot be pinned to each other - use `restate` / `restate_with` instead
+  --> tests/ui/typestate_disqualifying_field_shapes.rs:44:12
+   |
+44 |     value: <S as Meta>::Value,
+   |            ^^^^^^^^^^^^^^^^^^

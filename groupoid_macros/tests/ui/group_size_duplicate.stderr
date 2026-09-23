@@ -1,5 +1,5 @@
-error: only one `#[size(N)]` is allowed per associated type, found 2 on `Meta`
-  --> tests/ui/group_size_duplicate.rs:18:5
+error: exactly one `#[size(N)]` attribute is expected on associated type `Meta` inside `#[group]`, found 2 attribute(s)
+  --> tests/ui/group_size_duplicate.rs:19:10
    |
-18 |     #[size(8)]
-   |     ^^^^^^^^^^
+19 |     type Meta = u64;
+   |          ^^^^

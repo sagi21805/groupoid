@@ -107,8 +107,8 @@ impl std::fmt::Debug for DebugState {
 
 #[test]
 fn typestate_preserves_where_clause() {
-    // `DebugState` is both `State` and `Debug`, so this only compiles if the
-    // generated `impl WithState` reproduced the struct's original
+    // `DebugState` is both `State` and `Debug`, so this only compiles if
+    // the generated `impl WithState` reproduced the struct's original
     // `S: std::fmt::Debug` bound correctly (on top of the `State` bound
     // `#[typestate]` adds automatically).
     assert_with_state::<WithWhere<DebugState>>();
@@ -167,19 +167,21 @@ impl Sized4 for (Sized4State,) {
     type Value = u32;
 }
 
-// `Debug` sits alongside the blueprint trait `Sized4` here - previously any
-// bound other than the sole blueprint trait made `SizedWithState`
+// `Debug` sits alongside the blueprint trait `Sized4` here - previously
+// any bound other than the sole blueprint trait made `SizedWithState`
 // derivation bail out entirely, even though `S::Marker` still resolves
 // unambiguously (only `Sized4` has a `Marker` associated type).
-#[typestate(state = S)]
+#[typestate(state = S, unsafe_transmute = true)]
 struct SizedWrap<S: Sized4 + std::fmt::Debug> {
     #[allow(dead_code)]
     value: S::Value,
 }
 
-fn assert_sized_with_state<T: groupoid::SizedWithState<N>, const N: usize>() {}
+fn assert_sized_with_state<T: groupoid::SizedWithState<N, A>, const N: usize, const A: usize>() {}
 
 #[test]
 fn sized_with_state_derives_despite_extra_non_blueprint_bound() {
-    assert_sized_with_state::<SizedWrap<Sized4State>, 4>();
+    // `u32` is 4 bytes and 4-aligned, so both halves of the layout key are
+    // 4.
+    assert_sized_with_state::<SizedWrap<Sized4State>, 4, 4>();
 }

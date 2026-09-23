@@ -1,0 +1,13 @@
+error: `unsafe_transmute = true` needs at least one field to be a bare `S::Assoc` projection: without one there is nothing to transmute between states
+  --> tests/ui/typestate_unsafe_transmute_no_projection.rs:14:8
+   |
+14 | struct Tagged<S> {
+   |        ^^^^^^
+
+warning: unused import: `core::marker::PhantomData`
+ --> tests/ui/typestate_unsafe_transmute_no_projection.rs:7:5
+  |
+7 | use core::marker::PhantomData;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

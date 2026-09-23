@@ -1,0 +1,5 @@
+error: `unsafe_transmute = true` derives `TransmutableState` for this struct, which needs a guaranteed field layout; add `C` to its `#[repr(..)]`
+  --> tests/ui/typestate_unsafe_transmute_repr_rust.rs:28:1
+   |
+28 | #[repr(Rust)]
+   | ^^^^^^^^^^^^^

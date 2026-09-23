@@ -85,13 +85,14 @@ fn default_bodied_method_must_be_reimplemented_by_each_group_impl() {
 
 #[test]
 fn associated_const_is_not_delegated_and_always_uses_trait_level_default() {
-    // The public blanket impl never forwards consts, so both states see the
-    // trait-level default...
+    // The public blanket impl never forwards consts, so both states see
+    // the trait-level default...
     assert_eq!(<Widget<StateA> as a_b>::LIMIT, 10);
     assert_eq!(<Widget<StateB> as a_b>::LIMIT, 10);
 
-    // ...even though each group's override *did* land on the private helper
-    // trait, reachable directly from within this same crate root.
+    // ...even though each group's override *did* land on the private
+    // helper trait, reachable directly from within this same crate
+    // root.
     assert_eq!(
         <Widget<StateA> as __a_b_helper_mod::a_bHelper<GroupOne>>::LIMIT,
         42

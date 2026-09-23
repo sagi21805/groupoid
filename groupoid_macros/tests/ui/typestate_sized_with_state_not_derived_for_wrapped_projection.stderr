@@ -1,0 +1,5 @@
+error: `unsafe_transmute = true` needs every field to be a bare `S::Assoc` projection, a ZST, or independent of `S`; this one reaches the state through a wrapper, so the two states' layouts cannot be pinned to each other - use `restate` / `restate_with` instead
+  --> tests/ui/typestate_sized_with_state_not_derived_for_wrapped_projection.rs:35:12
+   |
+35 |     value: Option<S::Value>,
+   |            ^^^^^^^^^^^^^^^^
