@@ -53,9 +53,9 @@ pub fn group_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn typestate(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item_struct = parse_macro_input!(item as ItemStruct);
-    // An empty attribute parses to the default `TypeStateArgs`, whose
-    // `resolve_state_and_align` infers the state parameter - so there is
-    // no separate no-argument path.
+    // An empty attribute parses to a `TypeStateArgs` with nothing set,
+    // whose `resolve_state_and_transmute` infers the state parameter - so
+    // there is no separate no-argument path.
     let args = parse_macro_input!(attr as TypeStateArgs);
 
     TypeState::new(args, item_struct)

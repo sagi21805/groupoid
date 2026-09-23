@@ -1,102 +1,79 @@
 use extend::ext;
-use proc_macro2::TokenStream;
+use proc_macro2::{TokenStream, TokenTree};
+use quote::{ToTokens, format_ident, quote};
 use syn::{
-    Fields, GenericParam, Generics, Ident, ItemStruct, PathArguments, Token, Type, TypeParam,
+    Attribute, Fields, GenericArgument, GenericParam, Generics, Ident, Index, ItemStruct, LitBool,
+    LitInt, Path, PathArguments, Token, Type, TypeParam, TypePath, WherePredicate,
     parse::{Parse, ParseStream},
     parse_quote,
 };
 
-use quote::{format_ident, quote};
-
-/// Parses `state = SomeIdent`
 pub(crate) struct TypeState {
-    ident: Ident,
-}
-
-impl Parse for TypeState {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let key: Ident = input.parse()?;
-        if key != "state" {
-            return Err(syn::Error::new(key.span(), "expected `state = <Ident>`"));
-        }
-        input.parse::<Token![=]>()?;
-        let ident: Ident = input.parse()?;
-        Ok(TypeState { ident })
-    }
-}
-
-impl TypeState {
-    /// `#[typestate]` used with no `state = <Ident>` argument falls back to
-    /// the struct's sole generic type parameter.
-    pub(crate) fn infer(item_struct: &ItemStruct) -> syn::Result<TypeState> {
-        let type_params: Vec<_> = item_struct
-            .generics
-            .params
-            .iter()
-            .filter_map(|p| match p {
-                GenericParam::Type(tp) => Some(tp),
-                _ => None,
-            })
-            .collect();
-
-        let [only] = type_params.as_slice() else {
-            return Err(syn::Error::new_spanned(
-                &item_struct.ident,
-                "`#[typestate]` needs `state = <Ident>` unless the struct has exactly one generic type parameter",
-            ));
-        };
-
-        Ok(TypeState {
-            ident: only.ident.clone(),
-        })
-    }
-}
-
-pub(crate) struct TypeStateArg {
-    /// The original struct with `#[repr(C)]` applied and the
-    /// state parameter's changed to include `::groupoid::State`.
+    /// The original struct with the state parameter's bounds extended
+    /// with `::groupoid::State`, and its `repr` settled when the in-place
+    /// path is on.
     item_struct: ItemStruct,
     /// The generic type parameter carrying the state.
     state_ident: Ident,
-    /// Whether the struct's single field is a state projection,
-    has_state_projected_field: bool,
+    /// Whether the in-place `transmute_state` path is derived too, and
+    /// how its alignment is pinned if so.
+    transmute: Transmute,
+    /// The one associated type the fields project through the state
+    /// (`Value` in `S::Value`), if any: the leaf the by-value `restate`
+    /// methods convert.
+    projection: Option<Ident>,
 }
 
-impl TypeStateArg {
-    pub(crate) fn new(state: TypeState, mut item_struct: ItemStruct) -> syn::Result<Self> {
-        let has_state_projected_field = item_struct.has_single_state_projected_field(&state.ident);
+impl TypeState {
+    pub(crate) fn new(args: TypeStateArgs, mut item_struct: ItemStruct) -> syn::Result<Self> {
+        let (state_ident, transmute) = args.resolve_state_and_transmute(&item_struct)?;
+        let projection = item_struct.unique_projection(&state_ident)?;
 
-        item_struct.ensure_repr_c();
+        if let Transmute::On(align) = &transmute {
+            item_struct.require_transmutable_layout(&state_ident)?;
+            item_struct.ensure_repr(align)?;
+        }
         item_struct
-            .state_type_param(&state.ident)?
+            .lookup_state_param(&state_ident)?
             .bounds
             .push(parse_quote!(::groupoid::State));
 
-        Ok(TypeStateArg {
+        Ok(TypeState {
             item_struct,
-            state_ident: state.ident,
-            has_state_projected_field,
+            state_ident,
+            transmute,
+            projection,
         })
     }
 
-    pub(crate) fn generate_has_state_impl(&self) -> TokenStream {
+    pub(crate) fn generate_typestate_impls(&self) -> TokenStream {
         let item_struct = &self.item_struct;
         let with_state_impl = self.with_state_impl();
 
         // Whatever bound on the state param grants the field's projection
-        // (required for the field to type-check in the first place) is assumed
-        // to also grant `Marker`; if it turns out not to, rustc rejects the
-        // generated impls with an ordinary associated-type error.
+        // (required for the field to type-check in the first place) is
+        // assumed to also grant `Marker`; if it turns out not to,
+        // rustc rejects the generated impls with an ordinary
+        // associated-type error.
         //
-        // `TransmutableState` links `Self` to *every other* state that could be
-        // plugged into the same struct, at the same `SizedGroup` size, so it is
-        // meaningful under the exact same condition as `SizedWithState`.
-        let sized_with_state_impl = self
-            .has_state_projected_field
-            .then(|| self.sized_with_state_impl());
-        let transmutable_state_impl = self
-            .has_state_projected_field
-            .then(|| self.transmutable_state_impl());
+        // The in-place path only exists under `unsafe_transmute = true`,
+        // which `new` has already validated the struct for.
+        // `TransmutableState` links `Self` to *every other* state that
+        // could be plugged into the same struct, at the same layout, so
+        // it comes and goes together with `SizedWithState`.
+        let align = match &self.transmute {
+            Transmute::On(align) => Some(align),
+            Transmute::Off => None,
+        };
+        let sized_with_state_impl = align.map(|align| self.sized_with_state_impl(align));
+        let transmutable_state_impl = align.map(|align| self.transmutable_state_impl(align));
+        // By value the container is rebuilt field by field, so its layout
+        // never enters the picture: any struct that projects through the
+        // state at all gets `restate`.
+        let restate_impl = self
+            .projection
+            .as_ref()
+            .map(|projection| self.restate_impl(projection));
 
         quote! {
             #item_struct
@@ -106,13 +83,16 @@ impl TypeStateArg {
             #sized_with_state_impl
 
             #transmutable_state_impl
+
+            #restate_impl
         }
     }
 
     fn with_state_impl(&self) -> TokenStream {
         let struct_ident = &self.item_struct.ident;
         let state_ident = &self.state_ident;
-        // split_for_impl() correctly handles any number of generics + where clauses
+        // split_for_impl() correctly handles any number of generics +
+        // where clauses
         let (impl_generics, ty_generics, where_clause) = self.item_struct.generics.split_for_impl();
 
         quote! {
@@ -122,184 +102,510 @@ impl TypeStateArg {
         }
     }
 
-    // Implement `SizedWithState<N>` if the type of the blueprint inside the struct
-    // is #[size(N)]
-    fn sized_with_state_impl(&self) -> TokenStream {
+    /// Implement `SizedWithState<N, A>` if the type of the blueprint inside
+    /// the struct is `#[size(N)]`, with `A` either the state's own
+    /// alignment or the one forced by `align = A`.
+    fn sized_with_state_impl(&self, align: &Alignment) -> TokenStream {
         let struct_ident = &self.item_struct.ident;
         let (_, ty_generics, _) = self.item_struct.generics.split_for_impl();
+        let align_arg = align.const_generic_arg();
 
         let mut sized_generics = self.item_struct.generics.clone();
-        sized_generics.pin_states_to_size([&self.state_ident]);
+        sized_generics.pin_states_to_shared_layout(&[&self.state_ident], align);
 
         let (sized_impl_generics, _, sized_where_clause) = sized_generics.split_for_impl();
 
         quote! {
-            impl #sized_impl_generics ::groupoid::SizedWithState<__GROUPOID_SIZE>
+            impl #sized_impl_generics ::groupoid::SizedWithState<__GROUPOID_SIZE, #align_arg>
                 for #struct_ident #ty_generics #sized_where_clause {}
         }
     }
 
-    /// Implement `TransmutableState<Struct<S2>, N>` for `Struct<S>`, generic
-    /// over *every* other state `S2` that could be plugged in (given the same
-    /// bounds as `S`) with the same N constant
-    ///
-    /// # Example
-    ///
-    /// Given the `Wrap` struct from `tests/transmute_state.rs`:
-    ///
-    /// ```ignore
-    /// #[typestate(state = S)]
-    /// struct Wrap<S: Meta> {
-    ///     value: S::Value,
-    /// }
-    /// ```
-    ///
-    /// this method contributes the following to the expansion
-    /// (`cargo expand --package groupoid_macros --test transmute_state`):
-    ///
-    /// ```ignore
-    /// unsafe impl<
-    ///     S: Meta + ::groupoid::State,
-    ///     __GroupoidToState: Meta + ::groupoid::State,
-    ///     const __GROUPOID_SIZE: usize,
-    /// > ::groupoid::TransmutableState<Wrap<__GroupoidToState>, __GROUPOID_SIZE> for Wrap<S>
-    /// where
-    ///     S::Marker: ::groupoid::SizedGroup<__GROUPOID_SIZE>,
-    ///     __GroupoidToState::Marker: ::groupoid::SizedGroup<__GROUPOID_SIZE>,
-    /// {}
-    /// ```
-    ///
-    /// In that test `Small::Marker = SmallGroup: SizedGroup<4>` and
-    /// `Big::Marker = BigGroup: SizedGroup<4>`, so both where-predicates are
-    /// satisfiable only with `__GROUPOID_SIZE == 4` - which is what lets
-    /// `Wrap<Small>` transmute into `Wrap<Big>`, and what stops it from
-    /// transmuting into a state whose `Value` is a different size.
-    fn transmutable_state_impl(&self) -> TokenStream {
+    /// Implement `TransmutableState<S2, N, A>` for `Struct<S>` with
+    /// `Target = Struct<S2>`, generic over *every* other state `S2` that
+    /// could be plugged in (given the same bounds as `S`) at the same
+    /// layout.
+    fn transmutable_state_impl(&self, align: &Alignment) -> TokenStream {
         let struct_ident = &self.item_struct.ident;
-        let to_state_ident = format_ident!("__GroupoidToState");
+        let target_state_ident = format_ident!("__GroupoidTargetState");
+        let align_arg = align.const_generic_arg();
 
-        // Renaming the state param inside a clone of the struct's generics
-        // produces both halves of the `To` side at once: the `Wrap<__GroupoidToState>`
-        // type arguments below, and a `__GroupoidToState` parameter that already
-        // carries `S`'s bounds (`Meta + ::groupoid::State`).
-        let mut to_generics = self.item_struct.generics.clone();
-        let to_state_param = {
-            let param = to_generics
-                .state_param_mut(&self.state_ident)
-                .expect("the state ident was checked to be a type param in `new`");
-            param.ident = to_state_ident.clone();
-            param.clone()
-        };
+        let (target_state_param, target_generics) = self.target_generics(&target_state_ident);
 
         // The impl header needs both states in scope at once, hence the
-        // `<S, __GroupoidToState, ..>` parameter list.
-        let mut impl_generics_source = self.item_struct.generics.clone();
-        impl_generics_source
+        // `<S, __GroupoidTargetState, ..>` parameter list.
+        let mut header_generics = self.item_struct.generics.clone();
+        header_generics
             .params
-            .push(GenericParam::Type(to_state_param));
+            .push(GenericParam::Type(target_state_param));
 
-        // Both states are then pinned to the *same* `__GROUPOID_SIZE`, which is
-        // the safety argument for the `unsafe impl` spelled out in full below.
-        impl_generics_source.pin_states_to_size([&self.state_ident, &to_state_ident]);
+        // Both states are then pinned to the *same* layout, which is the
+        // safety argument for the `unsafe impl` spelled out in
+        // full below.
+        header_generics
+            .pin_states_to_shared_layout(&[&self.state_ident, &target_state_ident], align);
 
-        let (impl_generics, _, where_clause) = impl_generics_source.split_for_impl();
-        // `Wrap<__GroupoidToState>` (the `To` type argument) ...
-        let (_, to_ty_generics, _) = to_generics.split_for_impl();
+        let (impl_generics, _, where_clause) = header_generics.split_for_impl();
+        // `Wrap<__GroupoidTargetState>` (the `Target` associated type) ...
+        let (_, target_ty_generics, _) = target_generics.split_for_impl();
         // ... and `Wrap<S>` (the `for` type).
         let (_, self_ty_generics, _) = self.item_struct.generics.split_for_impl();
 
         quote! {
-            // SAFETY: `Self` and `To` are literally the same struct with
-            // only the state parameter swapped, and both sides' state
-            // values are pinned to the same `SizedGroup` size above.
+            // SAFETY: `Self` and `Target` are literally the same struct with
+            // only the state parameter swapped. Every field is either a bare
+            // projection through that state, a ZST, or state-independent, and
+            // both sides' projections are pinned to the same size and alignment
+            // above - so `repr(C)` lays the two out identically.
             unsafe impl #impl_generics ::groupoid::TransmutableState<
-                #struct_ident #to_ty_generics, __GROUPOID_SIZE
-            > for #struct_ident #self_ty_generics #where_clause {}
+                #target_state_ident, __GROUPOID_SIZE, #align_arg
+            > for #struct_ident #self_ty_generics #where_clause {
+                type Target = #struct_ident #target_ty_generics;
+            }
+        }
+    }
+
+    /// Renaming the state param inside a clone of the struct's generics
+    /// produces both halves of the target side at once: the
+    /// `Wrap<__GroupoidTargetState>` type arguments, and a
+    /// `__GroupoidTargetState` parameter that already carries `S`'s bounds
+    /// (`Meta + ::groupoid::State`). Both are returned, the parameter on its
+    /// own so it can be pushed onto another generics list.
+    fn target_generics(&self, target_state_ident: &Ident) -> (TypeParam, Generics) {
+        let mut target_generics = self.item_struct.generics.clone();
+        let target_state_param = target_generics
+            .type_param_mut(&self.state_ident)
+            .expect("the state ident was checked to be a type param in `new`");
+        target_state_param.ident = target_state_ident.clone();
+        let target_state_param = target_state_param.clone();
+
+        (target_state_param, target_generics)
+    }
+
+    /// The inherent `restate_with` / `restate` methods: by-value transitions
+    /// that rebuild the struct field by field, so they exist whether or not
+    /// the two states share a layout.
+    ///
+    /// The leaf conversion (`S::Value -> S2::Value`) is the one step the
+    /// macro cannot make safe on its own - the `#[size]` pin proves size,
+    /// not bit validity - so it is either taken from the caller
+    /// (`restate_with`) or transmuted under the shared `SizedGroup` pin
+    /// (`unsafe fn restate`), with a single generated body between them.
+    /// Alignment is irrelevant by value, so `restate` is bounded on size
+    /// alone in both `Alignment` modes.
+    fn restate_impl(&self, projection: &Ident) -> TokenStream {
+        let struct_ident = &self.item_struct.ident;
+        let state_ident = &self.state_ident;
+        let target_state_ident = format_ident!("__GroupoidTargetState");
+        let leaf = format_ident!("__groupoid_leaf");
+
+        let (target_state_param, target_generics) = self.target_generics(&target_state_ident);
+        let (_, target_ty_generics, _) = target_generics.split_for_impl();
+        let (impl_generics, ty_generics, where_clause) = self.item_struct.generics.split_for_impl();
+
+        // Every field is moved out of `self` and rebuilt for the target
+        // state; wrappers the recursion cannot see through add a
+        // `Restate` bound to `predicates`.
+        let cx = RestateLeaf {
+            state_ident,
+            target_state_ident: &target_state_ident,
+            projection,
+            leaf: &leaf,
+        };
+        let mut predicates = Vec::new();
+        let body = match &self.item_struct.fields {
+            Fields::Named(named) => {
+                let fields = named.named.iter().map(|field| {
+                    let ident = field.ident.as_ref().expect("named fields have identifiers");
+                    let expr = field
+                        .ty
+                        .restate_expr(&cx, quote!(self.#ident), &mut predicates);
+                    quote!(#ident: #expr)
+                });
+                quote!(#struct_ident { #(#fields),* })
+            }
+            Fields::Unnamed(unnamed) => {
+                let fields = unnamed.unnamed.iter().enumerate().map(|(i, field)| {
+                    let index = Index::from(i);
+                    field
+                        .ty
+                        .restate_expr(&cx, quote!(self.#index), &mut predicates)
+                });
+                quote!(#struct_ident(#(#fields),*))
+            }
+            Fields::Unit => unreachable!("a unit struct has no field to project through the state"),
+        };
+
+        // Method-level generics: the target state (with `S`'s bounds) for
+        // both methods, plus the shared size pin for `restate`.
+        let mut with_generics = Generics::default();
+        with_generics
+            .params
+            .push(GenericParam::Type(target_state_param));
+        let mut restate_generics = with_generics.clone();
+        restate_generics.pin_states_to_shared_size(&[state_ident, &target_state_ident]);
+        with_generics
+            .make_where_clause()
+            .predicates
+            .extend(predicates.iter().cloned());
+        restate_generics
+            .make_where_clause()
+            .predicates
+            .extend(predicates);
+
+        let (with_impl_generics, _, with_where_clause) = with_generics.split_for_impl();
+        let (restate_impl_generics, _, restate_where_clause) = restate_generics.split_for_impl();
+
+        quote! {
+            impl #impl_generics #struct_ident #ty_generics #where_clause {
+                /// Rebuilds `self` for the target state by value, converting
+                /// every projection through the state with `leaf`.
+                ///
+                /// A projection is reached through any nesting of `Option`,
+                /// arrays, `Box` and tuples; any other wrapper around one is
+                /// handed to `groupoid::Restate`. Fields that do not
+                /// mention the state are moved as they are.
+                pub fn restate_with #with_impl_generics (
+                    self,
+                    mut #leaf: impl FnMut(#state_ident::#projection)
+                        -> #target_state_ident::#projection,
+                ) -> #struct_ident #target_ty_generics #with_where_clause {
+                    #body
+                }
+
+                /// Rebuilds `self` for the target state by value,
+                /// bit-reinterpreting every projection through the state
+                /// under the shared `SizedGroup<SIZE>` pin.
+                ///
+                /// # Safety
+                ///
+                /// The bit pattern of every projection inside `self` must be
+                /// a valid value of the target state's projection.
+                pub unsafe fn restate #restate_impl_generics (
+                    self,
+                ) -> #struct_ident #target_ty_generics #restate_where_clause {
+                    self.restate_with::<#target_state_ident>(|value| unsafe {
+                        ::groupoid::restate_leaf::<_, _, __GROUPOID_SIZE>(value)
+                    })
+                }
+            }
         }
     }
 }
 
-// The rest of this module is plain syntax manipulation on `syn`'s own types,
-// hung off those types as extension traits so it reads as
-// `item_struct.state_type_param(..)` rather than as functions taking the thing
-// they act on. None of it belongs on `TypeStateArg`: each one either runs
-// during construction, before there is a `self` to speak of, or edits a
-// throwaway clone of some generics rather than anything the type owns.
+/// What `Type::restate_expr` needs to know about the transition it is
+/// spelling: which parameter is the state, what it becomes, which
+/// associated type is the leaf, and the binding holding the leaf
+/// conversion.
+struct RestateLeaf<'a> {
+    state_ident: &'a Ident,
+    target_state_ident: &'a Ident,
+    projection: &'a Ident,
+    leaf: &'a Ident,
+}
+
+/// Parses `#[typestate]`'s arguments, an optional `state = <Ident>`, an
+/// optional `unsafe_transmute = <bool>` and an optional
+/// `align = <integer literal>`, in any order, each at most once
+pub(crate) struct TypeStateArgs {
+    state: Option<Ident>,
+    align: Alignment,
+    unsafe_transmute: bool,
+}
+
+impl TypeStateArgs {
+    /// Find the state ident, and the alignment of the struct.
+    fn resolve_state_and_transmute(
+        self,
+        item_struct: &ItemStruct,
+    ) -> syn::Result<(Ident, Transmute)> {
+        let state = match self.state {
+            Some(ident) => ident,
+            None => item_struct.infer_state_ident()?.ident.clone(),
+        };
+        if !self.unsafe_transmute {
+            // By value `restate` never looks at alignment, so an `align`
+            // that pins nothing is a mistake
+            if let Alignment::Forced(n) = self.align {
+                return Err(syn::Error::new(
+                    n.span(),
+                    "`align` only applies with `unsafe_transmute = true`. The by-value `restate` \
+                     path never looks at alignment",
+                ));
+            } else {
+                return Ok((state, Transmute::Off));
+            }
+        }
+
+        Ok((state, Transmute::On(self.align)))
+    }
+}
+
+impl Parse for TypeStateArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        // Each argument is optional but may be given at most once
+        let mut state: Option<Ident> = None;
+        let mut unsafe_transmute: Option<LitBool> = None;
+        let mut align: Option<LitInt> = None;
+
+        while !input.is_empty() {
+            let key: Ident = input.parse()?;
+            match key.to_string().as_str() {
+                "state" => state.parse_once(&key, input)?,
+                "unsafe_transmute" => unsafe_transmute.parse_once(&key, input)?,
+                "align" => align.parse_once(&key, input)?,
+                _ => {
+                    return Err(syn::Error::new(
+                        key.span(),
+                        "expected `state = <Ident>`, `unsafe_transmute = <bool>` or `align = \
+                         <integer literal>`",
+                    ));
+                }
+            }
+
+            if input.is_empty() {
+                break;
+            }
+            input.parse::<Token![,]>()?;
+        }
+
+        Ok(TypeStateArgs {
+            state,
+            unsafe_transmute: unsafe_transmute.is_some_and(|flag| flag.value()),
+            align: align.into(),
+        })
+    }
+}
+
+#[ext]
+impl<T: Parse> Option<T> {
+    /// Parses `= <value>` for the argument `key` into this slot, rejecting
+    /// a second assignment.
+    fn parse_once(&mut self, key: &Ident, input: ParseStream) -> syn::Result<()> {
+        if self.is_some() {
+            return Err(syn::Error::new(
+                key.span(),
+                format!("duplicate `{key}` argument"),
+            ));
+        }
+        input.parse::<Token![=]>()?;
+        *self = Some(input.parse()?);
+        Ok(())
+    }
+}
+
+/// Whether `#[typestate]` also derives the `transmute_state`
+pub(crate) enum Transmute {
+    /// Default, only `WithState` and `restate` / `restate_with`.
+    Off,
+    /// `unsafe_transmute = true`, additionally implements `SizedWithState` and
+    /// `TransmutableState`
+    On(Alignment),
+}
+
+/// How the container's alignment is pinned.
+pub(crate) enum Alignment {
+    /// No `align` argument.
+    Inferred,
+    /// `align = N`. The container is forced to `#[repr(align(N))]`
+    Forced(LitInt),
+}
+
+impl From<Option<LitInt>> for Alignment {
+    /// An `align = N` argument, or its absence.
+    fn from(align: Option<LitInt>) -> Self {
+        match align {
+            Some(n) => Alignment::Forced(n),
+            None => Alignment::Inferred,
+        }
+    }
+}
+
+impl Alignment {
+    /// What goes in the `ALIGN` slot of `SizedWithState` /
+    /// `TransmutableState`.
+    fn const_generic_arg(&self) -> TokenStream {
+        match self {
+            Alignment::Inferred => quote!(__GROUPOID_ALIGN),
+            Alignment::Forced(n) => quote!(#n),
+        }
+    }
+
+    /// The extra marker bound unifying the states' alignments, when the
+    /// alignment is not forced.
+    fn aligned_group_bound(&self) -> Option<TokenStream> {
+        match self {
+            Alignment::Inferred => Some(quote!(::groupoid::AlignedGroup<__GROUPOID_ALIGN>)),
+            Alignment::Forced(_) => None,
+        }
+    }
+
+    /// The `#[repr(align(N))]` to add to the struct, when forced.
+    fn repr_align_attr(&self) -> Option<Attribute> {
+        match self {
+            Alignment::Inferred => None,
+            Alignment::Forced(n) => Some(parse_quote!(#[repr(align(#n))])),
+        }
+    }
+}
 
 #[ext]
 impl ItemStruct {
-    /// `#[repr(C)]` is useful so no matter what, the state field will always be
-    /// in the same place. An explicit `repr` from the author wins.
-    fn ensure_repr_c(&mut self) {
-        let has_repr = self.attrs.iter().any(|attr| attr.path().is_ident("repr"));
-        if !has_repr {
-            self.attrs.push(parse_quote!(#[repr(C)]));
+    /// Settles the struct's `repr`.
+    ///
+    /// This method will ensure that this struct layout is guaranteed with
+    /// `#[repr(C | transparent)]` and will ensure a minimal alignment.
+    fn ensure_repr(&mut self, align: &Alignment) -> syn::Result<()> {
+        let reprs: Vec<&Attribute> = self
+            .attrs
+            .iter()
+            .filter(|attr| attr.path().is_ident("repr"))
+            .collect();
+
+        match reprs.as_slice() {
+            [] => self.attrs.push(parse_quote!(#[repr(C)])),
+            [first, ..] if !reprs.iter().any(|attr| attr.guarantees_layout()) => {
+                return Err(syn::Error::new_spanned(
+                    first,
+                    "`unsafe_transmute = true` derives `TransmutableState` for this struct, which \
+                     needs a guaranteed field layout; add `C` to its `#[repr(..)]`",
+                ));
+            }
+            _ => {}
         }
+
+        if let Some(attr) = align.repr_align_attr() {
+            self.attrs.push(attr);
+        }
+
+        Ok(())
     }
 
     /// Looks up `state_ident` among the struct's generic type parameters,
     /// erroring if it isn't one of them.
-    fn state_type_param(&mut self, state_ident: &Ident) -> syn::Result<&mut TypeParam> {
+    fn lookup_state_param(&mut self, state_ident: &Ident) -> syn::Result<&mut TypeParam> {
         let msg = format!(
             "`{}` must be one of the generic type parameters of `{}`",
             state_ident, self.ident
         );
         self.generics
-            .state_param_mut(state_ident)
+            .type_param_mut(state_ident)
             .ok_or_else(|| syn::Error::new(state_ident.span(), msg))
     }
 
-    /// Whether the struct has exactly one field and that field is a projection
-    /// through the state, like `S::Value`. Only then do `SizedWithState` and
-    /// `TransmutableState` mean anything.
-    fn has_single_state_projected_field(&self, state_ident: &Ident) -> bool {
-        let field = match &self.fields {
-            Fields::Named(f) if f.named.len() == 1 => f.named.first(),
-            Fields::Unnamed(f) if f.unnamed.len() == 1 => f.unnamed.first(),
-            _ => None,
-        };
-        let Some(field) = field else {
-            return false;
-        };
+    /// Infer the struct's state ident from its generic type parameters,
+    /// erroring if it has more than one or none.
+    fn infer_state_ident(&self) -> syn::Result<&TypeParam> {
+        let mut type_params = self.generics.type_params();
 
-        let Type::Path(type_path) = &field.ty else {
-            return false;
-        };
-        if type_path.qself.is_some() || type_path.path.leading_colon.is_some() {
-            return false;
+        // The first type parameter, provided there is no second.
+        type_params
+            .next()
+            .filter(|_| type_params.next().is_none())
+            .ok_or_else(|| {
+                syn::Error::new_spanned(
+                    &self.ident,
+                    "`#[typestate]` needs `state = <Ident>` unless the struct has exactly one \
+                     generic type parameter",
+                )
+            })
+    }
+
+    /// Checks that every field's shape lets the container's layout be
+    /// pinned by the state's `SizedGroup`/`AlignedGroup` impls, so
+    /// `SizedWithState` and `TransmutableState` mean something
+    fn require_transmutable_layout(&self, state_ident: &Ident) -> syn::Result<()> {
+        let mut saw_projection = false;
+
+        for field in self.fields.iter() {
+            match field.ty.shape(state_ident) {
+                FieldShape::Projection => saw_projection = true,
+                FieldShape::Zst | FieldShape::Independent => {}
+                FieldShape::Wrapped => {
+                    return Err(syn::Error::new_spanned(
+                        &field.ty,
+                        format!(
+                            "`unsafe_transmute = true` needs every field to be a bare \
+                             `{state_ident}::Assoc` projection, a ZST, or independent of \
+                             `{state_ident}`; this one reaches the state through a wrapper, so \
+                             the two states' layouts cannot be pinned to each other - use \
+                             `restate` / `restate_with` instead"
+                        ),
+                    ));
+                }
+            }
         }
-        let segments: Vec<_> = type_path.path.segments.iter().collect();
-        let [state_seg, assoc_seg] = segments.as_slice() else {
-            return false;
-        };
-        if state_seg.ident != *state_ident || state_seg.arguments != PathArguments::None {
-            return false;
+
+        if !saw_projection {
+            return Err(syn::Error::new_spanned(
+                &self.ident,
+                format!(
+                    "`unsafe_transmute = true` needs at least one field to be a bare \
+                     `{state_ident}::Assoc` projection: without one there is nothing to transmute \
+                     between states"
+                ),
+            ));
         }
-        assoc_seg.arguments == PathArguments::None
+
+        Ok(())
+    }
+
+    /// The one associated type the fields project through the state
+    /// (`Value` in `S::Value`), at any depth, if any.
+    ///
+    /// `restate_with`'s leaf conversion is typed by this projection, so a
+    /// struct projecting two distinct ones (`S::Value` *and* `S::Marker`)
+    /// would leave it ambiguous and is rejected.
+    fn unique_projection(&self, state_ident: &Ident) -> syn::Result<Option<Ident>> {
+        let mut projection: Option<Ident> = None;
+
+        for field in self.fields.iter() {
+            for found in field.ty.projections_through(state_ident) {
+                match &projection {
+                    None => projection = Some(found),
+                    Some(first) if *first == found => {}
+                    Some(first) => {
+                        return Err(syn::Error::new(
+                            found.span(),
+                            format!(
+                                "`#[typestate]` cannot generate `restate` for a struct that \
+                                 projects both `{state_ident}::{first}` and \
+                                 `{state_ident}::{found}`: the leaf conversion would be ambiguous"
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(projection)
+    }
+}
+
+#[ext]
+impl Attribute {
+    /// Whether this attribute is `#[repr(C | transparent)]`.
+    fn guarantees_layout(&self) -> bool {
+        self.meta.require_list().is_ok_and(|list| {
+            list.tokens
+                .clone()
+                .into_iter()
+                .any(|tt| matches!(&tt, TokenTree::Ident(i) if i == "C" || i == "transparent"))
+        })
     }
 }
 
 #[ext(name = GenericsExt)]
 impl Generics {
-    /// The type parameter named `state_ident`, if these generics declare one.
-    fn state_param_mut(&mut self, state_ident: &Ident) -> Option<&mut TypeParam> {
-        self.params.iter_mut().find_map(|p| match p {
-            GenericParam::Type(tp) if tp.ident == *state_ident => Some(tp),
-            _ => None,
-        })
+    /// The type parameter named `state_ident`, if these generics declare
+    /// one.
+    fn type_param_mut(&mut self, state_ident: &Ident) -> Option<&mut TypeParam> {
+        self.type_params_mut().find(|tp| tp.ident == *state_ident)
     }
 
-    /// Adds the `const __GROUPOID_SIZE: usize` parameter shared by
-    /// `SizedWithState` and `TransmutableState`, plus one
-    /// `<State>::Marker: SizedGroup<__GROUPOID_SIZE>` predicate per state.
-    ///
-    /// Each state's `Marker` implements `SizedGroup<N>` for exactly the one `N`
-    /// its `#[size(N)]` declared, so listing several states here forces them
-    /// all onto the same `N` - that is what makes the size equality a type
-    /// error rather than an assumption. `states` is spelled out by the caller
-    /// because the predicates land in that order, and that order is part of the
-    /// generated output.
-    fn pin_states_to_size<'a>(&mut self, states: impl IntoIterator<Item = &'a Ident>) {
+    /// Adds the synthetic `__GROUPOID_SIZE` const parameter and the
+    /// predicates pinning every state's size to it.
+    fn pin_states_to_shared_size(&mut self, states: &[&Ident]) {
         self.params.push(parse_quote!(const __GROUPOID_SIZE: usize));
 
         let predicates = &mut self.make_where_clause().predicates;
@@ -308,5 +614,321 @@ impl Generics {
                 #state::Marker: ::groupoid::SizedGroup<__GROUPOID_SIZE>
             ));
         }
+    }
+
+    /// Adds the synthetic const parameters and the predicates pinning
+    /// every state's layout to them.
+    ///
+    /// `__GROUPOID_SIZE` is always added. `__GROUPOID_ALIGN` only joins it
+    /// when the alignment is inferred; a forced alignment puts a
+    /// literal in the `ALIGN` slot instead, so there is no parameter
+    /// to bind and the states' own alignments are left free.
+    fn pin_states_to_shared_layout(&mut self, states: &[&Ident], align: &Alignment) {
+        self.pin_states_to_shared_size(states);
+
+        let Some(bound) = align.aligned_group_bound() else {
+            return;
+        };
+        self.params
+            .push(parse_quote!(const __GROUPOID_ALIGN: usize));
+
+        let predicates = &mut self.make_where_clause().predicates;
+        for state in states {
+            predicates.push(parse_quote!(#state::Marker: #bound));
+        }
+    }
+}
+
+/// How a field's type relates to the state parameter
+enum FieldShape {
+    /// `S::Value`
+    Projection,
+    /// `()`, `PhantomData<..>`, etc.
+    Zst,
+    /// Mentions the state through something else `Option<S::Value>`,
+    /// `[S::Value; 2]`, etc.
+    Wrapped,
+    /// Never mentions the state at all.
+    Independent,
+}
+
+#[ext]
+impl Type {
+    /// Classifies this type for `require_transmutable_layout`.
+    fn shape(&self, state_ident: &Ident) -> FieldShape {
+        if self.is_state_type(state_ident) {
+            FieldShape::Projection
+        } else if self.is_zst() {
+            FieldShape::Zst
+        } else if self.mentions_ident(state_ident) {
+            FieldShape::Wrapped
+        } else {
+            FieldShape::Independent
+        }
+    }
+
+    /// Check if a type is a state type like `S::Value`.
+    fn is_state_type(&self, state_ident: &Ident) -> bool {
+        let Type::Path(TypePath {
+            qself: None, path, ..
+        }) = self
+        else {
+            return false;
+        };
+        if path.leading_colon.is_some() || path.segments.len() != 2 {
+            return false;
+        }
+        let state_seg = &path.segments[0];
+        let type_seg = &path.segments[1];
+        state_seg.ident == *state_ident
+            && state_seg.arguments == PathArguments::None
+            && type_seg.arguments == PathArguments::None
+    }
+
+    /// A fresh value of this type, when its spelling shows it to be a ZST:
+    /// `()`, `PhantomData<..>` or `PhantomPinned`.
+    fn zst_value(&self) -> Option<TokenStream> {
+        let path = match self {
+            Type::Tuple(tuple) => return tuple.elems.is_empty().then(|| quote!(())),
+            Type::Paren(paren) => return paren.elem.zst_value(),
+            Type::Path(TypePath {
+                qself: None, path, ..
+            }) => path,
+            _ => return None,
+        };
+
+        if path.is_std_item("marker", "PhantomData") {
+            Some(quote!(::core::marker::PhantomData))
+        } else {
+            None
+        }
+    }
+
+    /// A type known to be a ZST from its spelling
+    fn is_zst(&self) -> bool {
+        self.zst_value().is_some()
+    }
+
+    /// Every `Assoc` of an `S::Assoc` written anywhere inside this type, so
+    /// `Option<S::Value>` yields `Value` just as a bare `S::Value` does.
+    ///
+    /// A token scan like `mentions_ident`; `S` is only a projection head
+    /// when it is not itself preceded by `::`.
+    fn projections_through(&self, state_ident: &Ident) -> Vec<Ident> {
+        fn scan(tokens: TokenStream, state_ident: &Ident, out: &mut Vec<Ident>) {
+            let tokens: Vec<TokenTree> = tokens.into_iter().collect();
+            for (i, tt) in tokens.iter().enumerate() {
+                match tt {
+                    TokenTree::Group(group) => scan(group.stream(), state_ident, out),
+                    TokenTree::Ident(ident) if ident == state_ident => {
+                        if i > 0 && tokens[i - 1].is_colon() {
+                            continue;
+                        }
+                        match tokens.get(i + 1..i + 4) {
+                            Some([a, b, TokenTree::Ident(assoc)])
+                                if a.is_colon() && b.is_colon() =>
+                            {
+                                out.push(assoc.clone());
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let mut out = Vec::new();
+        scan(self.to_token_stream(), state_ident, &mut out);
+        out
+    }
+
+    /// This type's tokens with every `from` that heads a path replaced by
+    /// `to`, e.g. `Pair<S::Value>` -> `Pair<__GroupoidTargetState::Value>`.
+    fn with_ident_renamed(&self, from: &Ident, to: &Ident) -> TokenStream {
+        fn rename(tokens: TokenStream, from: &Ident, to: &Ident) -> TokenStream {
+            let mut after_colon = false;
+            tokens
+                .into_iter()
+                .map(|tt| {
+                    let renamed = match tt {
+                        TokenTree::Ident(ref ident) if ident == from && !after_colon => {
+                            TokenTree::Ident(to.clone())
+                        }
+                        TokenTree::Group(group) => {
+                            let mut renamed = proc_macro2::Group::new(
+                                group.delimiter(),
+                                rename(group.stream(), from, to),
+                            );
+                            renamed.set_span(group.span());
+                            TokenTree::Group(renamed)
+                        }
+                        tt => tt,
+                    };
+                    after_colon = renamed.is_colon();
+                    renamed
+                })
+                .collect()
+        }
+
+        rename(self.to_token_stream(), from, to)
+    }
+
+    /// The expression rebuilding a value of this type for the target
+    /// state, given `src`, an expression of this type that may be moved.
+    ///
+    /// Recurses through the shapes it can see (`Option`, arrays, `Box`,
+    /// tuples, parentheses); anything else that mentions the state is
+    /// handed to `groupoid::Restate`, and the bound that needs is pushed
+    /// onto `predicates` so a missing impl surfaces at the call site rather
+    /// than inside the generated method.
+    fn restate_expr(
+        &self,
+        cx: &RestateLeaf,
+        src: TokenStream,
+        predicates: &mut Vec<WherePredicate>,
+    ) -> TokenStream {
+        if !self.mentions_ident(cx.state_ident) {
+            return src;
+        }
+        if self.is_state_type(cx.state_ident) {
+            let leaf = cx.leaf;
+            return quote!(#leaf(#src));
+        }
+        if let Some(value) = self.zst_value() {
+            return value;
+        }
+
+        let elem = format_ident!("__groupoid_elem");
+        match self {
+            Type::Paren(paren) => paren.elem.restate_expr(cx, src, predicates),
+            Type::Tuple(tuple) => {
+                let bindings: Vec<Ident> = (0..tuple.elems.len())
+                    .map(|i| format_ident!("__groupoid_elem{i}"))
+                    .collect();
+                let elems = tuple
+                    .elems
+                    .iter()
+                    .zip(&bindings)
+                    .map(|(ty, binding)| ty.restate_expr(cx, quote!(#binding), predicates));
+                quote!({
+                    let (#(#bindings,)*) = #src;
+                    (#(#elems,)*)
+                })
+            }
+            Type::Array(array) => {
+                let inner = array.elem.restate_expr(cx, quote!(#elem), predicates);
+                quote!(#src.map(|#elem| #inner))
+            }
+            Type::Path(TypePath {
+                qself: None, path, ..
+            }) => {
+                if let Some(inner) = path.std_item_arg("option", "Option") {
+                    let inner = inner.restate_expr(cx, quote!(#elem), predicates);
+                    quote!(#src.map(|#elem| #inner))
+                } else if let Some(inner) = path.std_item_arg("boxed", "Box") {
+                    // Reallocates: a pointer cast would only be sound when the
+                    // inner conversion is itself in place, which
+                    // `restate_with` and nested `Option`s are not.
+                    let inner = inner.restate_expr(cx, quote!(#elem), predicates);
+                    quote!(::std::boxed::Box::new({
+                        let #elem = *#src;
+                        #inner
+                    }))
+                } else {
+                    self.opaque_restate_expr(cx, src, predicates)
+                }
+            }
+            _ => self.opaque_restate_expr(cx, src, predicates),
+        }
+    }
+
+    /// `restate_expr` for a type the recursion cannot see through: a call
+    /// into the user's `Restate` impl, and the bound requiring it.
+    fn opaque_restate_expr(
+        &self,
+        cx: &RestateLeaf,
+        src: TokenStream,
+        predicates: &mut Vec<WherePredicate>,
+    ) -> TokenStream {
+        let RestateLeaf {
+            state_ident,
+            target_state_ident,
+            projection,
+            leaf,
+        } = cx;
+        let target_ty = self.with_ident_renamed(state_ident, target_state_ident);
+        let (src_leaf, dst_leaf) = (
+            quote!(#state_ident::#projection),
+            quote!(#target_state_ident::#projection),
+        );
+
+        predicates.push(parse_quote!(
+            #self: ::groupoid::Restate<#src_leaf, #dst_leaf, Output = #target_ty>
+        ));
+        quote!(<#self as ::groupoid::Restate<#src_leaf, #dst_leaf>>::restate(#src, &mut #leaf))
+    }
+
+    /// Whether `ident` appears anywhere inside this type.
+    ///
+    /// A token scan rather than `syn::visit`, which sits behind a syn
+    /// feature this crate does not enable. It errs in the safe direction: a
+    /// false positive (an unrelated `other::S`) only withholds an `unsafe
+    /// impl`.
+    fn mentions_ident(&self, ident: &Ident) -> bool {
+        fn scan(tokens: TokenStream, ident: &Ident) -> bool {
+            tokens.into_iter().any(|tt| match tt {
+                TokenTree::Ident(i) => i == *ident,
+                TokenTree::Group(g) => scan(g.stream(), ident),
+                _ => false,
+            })
+        }
+
+        scan(self.to_token_stream(), ident)
+    }
+}
+
+#[ext]
+impl Path {
+    /// Whether this path names `item` from std's `module`, whether spelled
+    /// bare (`Option`), through the module (`option::Option`) or through a
+    /// root crate (`core::option::Option`).
+    fn is_std_item(&self, module: &str, item: &str) -> bool {
+        let segments: Vec<String> = self.segments.iter().map(|s| s.ident.to_string()).collect();
+        let segments: Vec<&str> = segments.iter().map(String::as_str).collect();
+
+        let Some((last, prefix)) = segments.split_last() else {
+            return false;
+        };
+        *last == item
+            && match prefix {
+                [] => true,
+                [m] => *m == module,
+                [root, m] => matches!(*root, "std" | "core" | "alloc") && *m == module,
+                _ => false,
+            }
+    }
+
+    /// The `T` of `item<T>`, when this path is std's `item` (see
+    /// `is_std_item`) applied to exactly one type argument.
+    fn std_item_arg(&self, module: &str, item: &str) -> Option<&Type> {
+        if !self.is_std_item(module, item) {
+            return None;
+        }
+        let PathArguments::AngleBracketed(args) = &self.segments.last()?.arguments else {
+            return None;
+        };
+        match args.args.iter().collect::<Vec<_>>().as_slice() {
+            [GenericArgument::Type(ty)] => Some(ty),
+            _ => None,
+        }
+    }
+}
+
+#[ext]
+impl TokenTree {
+    /// Whether this token is one `:`; a `::` is two of them in a row.
+    fn is_colon(&self) -> bool {
+        matches!(self, TokenTree::Punct(p) if p.as_char() == ':')
     }
 }
