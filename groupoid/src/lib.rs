@@ -151,14 +151,14 @@ impl<T: WithState, const SIZE: usize, const ALIGN: usize> TransmuteState<SIZE, A
 /// `#[typestate]` sees through `Option`, arrays, `Box` and tuples by itself.
 /// Any other type that mentions the state - a user wrapper such as
 /// `Pair<S::Value>` - is opaque to it, so the generated `restate_with`
-/// method hands the value to this trait instead. `leaf` converts one bare
+/// method hands the value to this trait instead. `f` converts one bare
 /// projection; the impl decides where inside `Self` to apply it:
 ///
 /// ```ignore
 /// impl<A, B> Restate<A, B> for Pair<A> {
 ///     type Output = Pair<B>;
-///     fn restate(self, leaf: &mut impl FnMut(A) -> B) -> Pair<B> {
-///         Pair(leaf(self.0), leaf(self.1))
+///     fn restate(self, f: &mut impl FnMut(A) -> B) -> Pair<B> {
+///         Pair(f(self.0), f(self.1))
 ///     }
 /// }
 /// ```
@@ -182,6 +182,6 @@ pub trait Restate<Src, Dst> {
     type Output;
 
     /// Rebuilds `self` for the target state, converting each projection
-    /// with `leaf`.
-    fn restate(self, leaf: &mut impl FnMut(Src) -> Dst) -> Self::Output;
+    /// with `f`.
+    fn restate(self, f: &mut impl FnMut(Src) -> Dst) -> Self::Output;
 }

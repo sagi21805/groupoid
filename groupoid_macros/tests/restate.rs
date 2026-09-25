@@ -41,8 +41,8 @@ struct Pair<T>(T, T);
 impl<A, B> Restate<A, B> for Pair<A> {
     type Output = Pair<B>;
 
-    fn restate(self, leaf: &mut impl FnMut(A) -> B) -> Pair<B> {
-        Pair(leaf(self.0), leaf(self.1))
+    fn restate(self, f: &mut impl FnMut(A) -> B) -> Pair<B> {
+        Pair(f(self.0), f(self.1))
     }
 }
 
@@ -87,7 +87,7 @@ fn assert_round_trip(big: Wrap<Big>) {
 }
 
 #[test]
-fn restate_with_converts_every_projection_through_the_leaf() {
+fn restate_with_converts_every_projection_through_f() {
     let mut calls = 0;
     let big: Wrap<Big> = sample().restate_with(|v| {
         calls += 1;
@@ -101,7 +101,7 @@ fn restate_with_converts_every_projection_through_the_leaf() {
 }
 
 #[test]
-fn restate_with_sees_none_without_calling_the_leaf() {
+fn restate_with_sees_none_without_calling_f() {
     let small = Wrap::<Small> {
         maybe: None,
         nested: None,

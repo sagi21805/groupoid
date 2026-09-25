@@ -1,7 +1,7 @@
-// `restate_with` takes one leaf conversion, typed by the associated type the
+// `restate_with` takes one conversion `f`, typed by the associated type the
 // struct projects through its state. A struct projecting two distinct ones
 // (`S::Value` and `S::Marker` - the latter is the associated type `#[blueprint]`
-// adds) would leave that leaf ambiguous, so `#[typestate]` rejects it outright.
+// adds) would leave `f` ambiguous, so `#[typestate]` rejects it outright.
 #![allow(dead_code)]
 use groupoid_macros::{blueprint, typestate};
 
