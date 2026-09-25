@@ -4,6 +4,10 @@ This project is meant to create grouping types for Rust. These types while used 
 
 For example if we have a trait the defines certain type, we can implement a method for every type that has a state that it type is a usize. Then we can create a different implementation for the same method for a type that has a state that is a String. This allows us to have a single function that can handle multiple states of a type, while still maintaining type safety and clarity in our code.
 
+## Rust style
+
+Load the `rust-style` skill before writing, editing or reviewing any Rust code in this project. It holds the owner's conventions and the proc-macro guidance this crate follows. 
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
