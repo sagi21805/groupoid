@@ -8,6 +8,12 @@ For example if we have a trait the defines certain type, we can implement a meth
 
 Load the `rust-style` skill before writing, editing or reviewing any Rust code in this project. It holds the owner's conventions and the proc-macro guidance this crate follows. 
 
+When I ask you to rewrite certain code in a way that I like more, find a way to generalize it, and then ask for my permission to include it in the `rust-style` skill. This way, we can keep the codebase consistent and maintainable.
+
+## Unslop
+
+When writing any text, use the `unslop` skill to remove any unnecessary words, phrases, or sentences. This will help keep the text clear.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
