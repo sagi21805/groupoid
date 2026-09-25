@@ -158,7 +158,8 @@ fn forced_alignment_bridges_differently_aligned_states() {
     assert_eq!(
         align_of::<Forced<Bytes>>(),
         8,
-        "the forced repr(align(8)) applies even though [u8; 8] is 1-aligned"
+        "the forced repr(align(8)) applies even though [u8; 8] is \
+         1-aligned"
     );
     assert_eq!(size_of::<Forced<Wide>>(), size_of::<Forced<Bytes>>());
 

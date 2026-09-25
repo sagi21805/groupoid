@@ -1,11 +1,11 @@
 //! The by-value transition `#[typestate]` generates next to the in-place
-//! transmute: `restate_with`, where the caller converts each projection. It
-//! rebuilds the struct field by field, so it exists for every struct that
-//! projects through its state, including the shapes that disqualify the
-//! in-place path (`Option<S::Value>` and friends).
+//! transmute: `restate_with`, where the caller converts each projection.
+//! It rebuilds the struct field by field, so it exists for every struct
+//! that projects through its state, including the shapes that disqualify
+//! the in-place path (`Option<S::Value>` and friends).
 //!
-//! The macro sees through `Option`, arrays, `Box` and tuples by itself; any
-//! other wrapper goes through a user `Restate` impl.
+//! The macro sees through `Option`, arrays, `Box` and tuples by itself;
+//! any other wrapper goes through a user `Restate` impl.
 
 use core::marker::PhantomData;
 use groupoid::Restate;
@@ -46,7 +46,8 @@ impl<A, B> Restate<A, B> for Pair<A> {
     }
 }
 
-// --- every shape at once --------------------------------------------------
+// --- every shape at once
+// --------------------------------------------------
 
 #[typestate(state = S)]
 struct Wrap<S: Meta> {
@@ -96,7 +97,8 @@ fn restate_with_converts_every_projection_through_f() {
     assert_round_trip(big);
     assert_eq!(
         calls, 10,
-        "one call per projection: value, maybe, many x2, boxed, pair.0, nested x2, user x2"
+        "one call per projection: value, maybe, many x2, boxed, pair.0, \
+         nested x2, user x2"
     );
 }
 
@@ -129,7 +131,8 @@ fn a_struct_without_the_in_place_path_still_restates_by_value() {
     assert_eq!(big.value, Some(0xdead_beefu32 as i32));
 }
 
-// --- other generics ride along, and tuple structs are positional ---------
+// --- other generics ride along, and tuple structs are positional
+// ---------
 
 #[typestate(state = S)]
 struct Ordered<S: Meta, T> {
@@ -154,11 +157,13 @@ struct Positional<S: Meta>(u8, S::Value, Option<S::Value>);
 
 #[test]
 fn tuple_structs_are_rebuilt_positionally() {
-    let big: Positional<Big> = Positional::<Small>(1, 2, Some(3)).restate_with(|v| v as i32);
+    let big: Positional<Big> =
+        Positional::<Small>(1, 2, Some(3)).restate_with(|v| v as i32);
     assert_eq!((big.0, big.1, big.2), (1, 2, Some(3)));
 }
 
-// --- forced alignment still generates `restate_with` ---------------------
+// --- forced alignment still generates `restate_with`
+// ---------------------
 
 #[state]
 struct Wide;
@@ -229,6 +234,7 @@ struct Unpinned<S: Meta> {
 
 #[test]
 fn restate_only_structs_keep_their_own_repr() {
-    let big: Unpinned<Big> = Unpinned::<Small> { value: 7, tag: 9 }.restate_with(|v| v as i32);
+    let big: Unpinned<Big> =
+        Unpinned::<Small> { value: 7, tag: 9 }.restate_with(|v| v as i32);
     assert_eq!((big.value, big.tag), (7, 9));
 }

@@ -1,4 +1,6 @@
-use groupoid_macros::{blueprint, group, group_impl, group_trait, state, typestate};
+use groupoid_macros::{
+    blueprint, group, group_impl, group_trait, state, typestate,
+};
 
 #[blueprint]
 trait Testing {

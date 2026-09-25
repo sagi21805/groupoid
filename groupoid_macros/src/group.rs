@@ -8,7 +8,10 @@ pub struct Group<'ast> {
 }
 
 impl<'ast> Group<'ast> {
-    pub fn new(item_impl: &'ast ItemImpl, group_name: &'ast Ident) -> Group<'ast> {
+    pub fn new(
+        item_impl: &'ast ItemImpl,
+        group_name: &'ast Ident,
+    ) -> Group<'ast> {
         Group {
             inner_impl: item_impl,
             group_name,
@@ -50,14 +53,12 @@ impl<'ast> Group<'ast> {
     /// The trait this `#[group]` impl block is implementing, e.g.
     /// `Testing` in `impl Testing for (StateA, StateB) { .. }`.
     fn trait_name(&self) -> syn::Result<&'ast Ident> {
-        let (trait_path, _) = self
-            .inner_impl
-            .trait_
-            .as_ref()
-            .ok_or(syn::Error::new_spanned(
+        let (trait_path, _) = self.inner_impl.trait_.as_ref().ok_or(
+            syn::Error::new_spanned(
                 self.inner_impl,
                 "Expected trait impl block, found regular.",
-            ))?;
+            ),
+        )?;
 
         trait_path.get_ident().ok_or(syn::Error::new_spanned(
             trait_path,
@@ -72,7 +73,8 @@ impl<'ast> Group<'ast> {
         let Type::Tuple(tup) = self.inner_impl.self_ty.as_ref() else {
             return Err(syn::Error::new_spanned(
                 self.inner_impl,
-                "Expected tuple for the group states, e.g. (StateA, StateB ...)",
+                "Expected tuple for the group states, e.g. (StateA, \
+                 StateB ...)",
             ));
         };
 
@@ -86,8 +88,8 @@ impl<'ast> Group<'ast> {
                 .ok_or_else(|| {
                     syn::Error::new_spanned(
                         e,
-                        "Expected the types inside the group tuple to be single idents, e.g. \
-                         (StateA, StateB ...)",
+                        "Expected the types inside the group tuple to be \
+                         single idents, e.g. (StateA, StateB ...)",
                     )
                 })
             })
@@ -97,7 +99,10 @@ impl<'ast> Group<'ast> {
     /// The size assertion and `SizedGroup`/`AlignedGroup` impls for the
     /// group's associated type, or an empty stream if it carries no
     /// `#[size(N)]`.
-    fn sized_group_impls(&self, items: &mut [ImplItem]) -> syn::Result<TokenStream> {
+    fn sized_group_impls(
+        &self,
+        items: &mut [ImplItem],
+    ) -> syn::Result<TokenStream> {
         let Some(impl_ty) = items
             .iter_mut()
             .find_map(|item| match item {
@@ -109,7 +114,8 @@ impl<'ast> Group<'ast> {
             return Ok(quote! {});
         };
 
-        let SizeAssert { assert, size, ty } = SizeAssert::try_from(impl_ty)?;
+        let SizeAssert { assert, size, ty } =
+            SizeAssert::try_from(impl_ty)?;
 
         let group_name = self.group_name;
 
@@ -143,8 +149,9 @@ impl<'a> TryFrom<&'a mut ImplItemType> for SizeAssert<'a> {
             return Err(syn::Error::new(
                 ident.span(),
                 format!(
-                    "exactly one `#[size(N)]` attribute is expected on associated type `{}` \
-                     inside `#[group]`, found {} attribute(s)",
+                    "exactly one `#[size(N)]` attribute is expected on \
+                     associated type `{}` inside `#[group]`, found {} \
+                     attribute(s)",
                     ident,
                     impl_ty.attrs.len()
                 ),
@@ -155,7 +162,8 @@ impl<'a> TryFrom<&'a mut ImplItemType> for SizeAssert<'a> {
             return Err(syn::Error::new_spanned(
                 attr,
                 format!(
-                    "only `#[size(N)]` is allowed on associated type `{}` inside `#[group]`",
+                    "only `#[size(N)]` is allowed on associated type \
+                     `{}` inside `#[group]`",
                     ident
                 ),
             ));

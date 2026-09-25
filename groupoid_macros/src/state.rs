@@ -14,7 +14,8 @@ impl<'ast> State<'ast> {
     pub(crate) fn generate_state_impl(&self) -> TokenStream {
         let item_struct = self.item_struct;
         let struct_ident = &item_struct.ident;
-        let (impl_generics, ty_generics, where_clause) = item_struct.generics.split_for_impl();
+        let (impl_generics, ty_generics, where_clause) =
+            item_struct.generics.split_for_impl();
 
         quote! {
             #item_struct

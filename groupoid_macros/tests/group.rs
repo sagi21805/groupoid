@@ -5,7 +5,10 @@ use groupoid_macros::{group, state};
 trait Testing {
     type Meta;
     type AnotherType: Sized;
-    type Marker: TestingGroupMarker<Meta = Self::Meta, AnotherType = Self::AnotherType>;
+    type Marker: TestingGroupMarker<
+            Meta = Self::Meta,
+            AnotherType = Self::AnotherType,
+        >;
 }
 
 trait TestingGroupMarker {

@@ -49,11 +49,13 @@ fn transmute_state_between_same_sized_states_of_the_same_struct() {
 fn transmute_state_ref_and_mut_round_trip() {
     let mut small = Wrap::<Small> { value: 7 };
     {
-        let big_ref: &Wrap<Big> = unsafe { small.transmute_state_ref::<Big>() };
+        let big_ref: &Wrap<Big> =
+            unsafe { small.transmute_state_ref::<Big>() };
         assert_eq!(big_ref.value, 7);
     }
     {
-        let big_mut: &mut Wrap<Big> = unsafe { small.transmute_state_mut::<Big>() };
+        let big_mut: &mut Wrap<Big> =
+            unsafe { small.transmute_state_mut::<Big>() };
         big_mut.value = 9;
     }
     assert_eq!(small.value, 9);
@@ -90,9 +92,11 @@ wrap_via_macro!(S::Value);
 
 #[test]
 fn transmute_state_sees_through_parens_and_macro_groups() {
-    let big: Paren<Big> = unsafe { Paren::<Small> { value: 3 }.transmute_state::<Big>() };
+    let big: Paren<Big> =
+        unsafe { Paren::<Small> { value: 3 }.transmute_state::<Big>() };
     assert_eq!(big.value, 3);
 
-    let big: ViaMacro<Big> = unsafe { ViaMacro::<Small> { value: 5 }.transmute_state::<Big>() };
+    let big: ViaMacro<Big> =
+        unsafe { ViaMacro::<Small> { value: 5 }.transmute_state::<Big>() };
     assert_eq!(big.value, 5);
 }

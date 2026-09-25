@@ -2,8 +2,8 @@ use extend::ext;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-    FnArg, Ident, ItemTrait, Pat, PatIdent, PatType, Signature, Token, TraitItem, TraitItemFn,
-    TypePath,
+    FnArg, Ident, ItemTrait, Pat, PatIdent, PatType, Signature, Token,
+    TraitItem, TraitItemFn, TypePath,
     parse::{Parse, ParseStream},
 };
 
@@ -16,7 +16,10 @@ pub struct GroupTrait<'ast> {
 }
 
 impl<'ast> GroupTrait<'ast> {
-    pub fn new(args: &'ast GroupTraitArgs, item_trait: &'ast ItemTrait) -> GroupTrait<'ast> {
+    pub fn new(
+        args: &'ast GroupTraitArgs,
+        item_trait: &'ast ItemTrait,
+    ) -> GroupTrait<'ast> {
         let mut marker_trait = args.ty.clone();
         if let Some(last) = marker_trait.path.segments.last_mut() {
             last.ident = format_ident!("{}GroupMarker", last.ident);
@@ -26,8 +29,12 @@ impl<'ast> GroupTrait<'ast> {
             args,
             item_trait,
             marker_trait,
-            helper_ident: crate::naming::helper_trait_ident(&item_trait.ident),
-            helper_mod_ident: crate::naming::helper_mod_ident(&item_trait.ident),
+            helper_ident: crate::naming::helper_trait_ident(
+                &item_trait.ident,
+            ),
+            helper_mod_ident: crate::naming::helper_mod_ident(
+                &item_trait.ident,
+            ),
         }
     }
 
@@ -54,7 +61,8 @@ impl<'ast> GroupTrait<'ast> {
         if !generics.params.is_empty() {
             return Err(syn::Error::new_spanned(
                 generics,
-                "#[group_trait] does not currently support generic parameters on the trait itself",
+                "#[group_trait] does not currently support generic \
+                 parameters on the trait itself",
             ));
         }
 
@@ -62,7 +70,9 @@ impl<'ast> GroupTrait<'ast> {
         let declarations: Vec<TokenStream> = items
             .iter()
             .map(|item| match item {
-                TraitItem::Fn(TraitItemFn { attrs, sig, .. }) => quote!(#(#attrs)* #sig;),
+                TraitItem::Fn(TraitItemFn { attrs, sig, .. }) => {
+                    quote!(#(#attrs)* #sig;)
+                }
                 other => quote!(#other),
             })
             .collect();
@@ -113,7 +123,8 @@ impl<'ast> GroupTrait<'ast> {
         quote!(<T::State as #blueprint>::Marker)
     }
 
-    /// Change original trait function to call the helper trait impl instead.
+    /// Change original trait function to call the helper trait impl
+    /// instead.
     fn delegate(&self, method: &TraitItemFn) -> syn::Result<TokenStream> {
         let sig = &method.sig;
         let args = sig.forwarded_args()?;
@@ -170,8 +181,8 @@ impl Signature {
             return Err(syn::Error::new_spanned(
                 self,
                 format!(
-                    "method `{}` must take `self`: #[group_trait] requires every method to have a \
-                     receiver",
+                    "method `{}` must take `self`: #[group_trait] \
+                     requires every method to have a receiver",
                     self.ident
                 ),
             ));
@@ -183,12 +194,15 @@ impl Signature {
             .map(|(index, fn_arg)| match fn_arg {
                 FnArg::Receiver(_) => Ok(quote!(self)),
                 FnArg::Typed(PatType { pat, .. }) => match &**pat {
-                    Pat::Ident(PatIdent { ident, .. }) => Ok(quote!(#ident)),
+                    Pat::Ident(PatIdent { ident, .. }) => {
+                        Ok(quote!(#ident))
+                    }
                     other => Err(syn::Error::new_spanned(
                         other,
                         format!(
-                            "argument {index} of `{}` must be a simple identifier for \
-                             #[group_trait] to forward it automatically",
+                            "argument {index} of `{}` must be a simple \
+                             identifier for #[group_trait] to forward it \
+                             automatically",
                             self.ident
                         ),
                     )),

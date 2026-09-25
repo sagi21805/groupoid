@@ -1,6 +1,8 @@
 #![allow(non_camel_case_types)]
 
-use groupoid_macros::{blueprint, group, group_impl, group_trait, state, typestate};
+use groupoid_macros::{
+    blueprint, group, group_impl, group_trait, state, typestate,
+};
 
 #[blueprint]
 trait Testing {
@@ -84,7 +86,8 @@ fn default_bodied_method_must_be_reimplemented_by_each_group_impl() {
 }
 
 #[test]
-fn associated_const_is_not_delegated_and_always_uses_trait_level_default() {
+fn associated_const_is_not_delegated_and_always_uses_trait_level_default()
+{
     // The public blanket impl never forwards consts, so both states see
     // the trait-level default...
     assert_eq!(<Widget<StateA> as a_b>::LIMIT, 10);

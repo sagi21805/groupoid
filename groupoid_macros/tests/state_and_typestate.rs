@@ -177,7 +177,12 @@ struct SizedWrap<S: Sized4 + std::fmt::Debug> {
     value: S::Value,
 }
 
-fn assert_sized_with_state<T: groupoid::SizedWithState<N, A>, const N: usize, const A: usize>() {}
+fn assert_sized_with_state<
+    T: groupoid::SizedWithState<N, A>,
+    const N: usize,
+    const A: usize,
+>() {
+}
 
 #[test]
 fn sized_with_state_derives_despite_extra_non_blueprint_bound() {

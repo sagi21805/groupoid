@@ -34,7 +34,8 @@ impl<'ast> Blueprint<'ast> {
             return Err(syn::Error::new_spanned(
                 &self.inner.ident,
                 format!(
-                    "`#[blueprint]` requires exactly one associated type, found {}",
+                    "`#[blueprint]` requires exactly one associated \
+                     type, found {}",
                     type_definitions.len()
                 ),
             ));

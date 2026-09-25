@@ -1,12 +1,13 @@
-//! Extension methods on `syn` and `proc_macro2` types that know nothing about
-//! groupoid itself: syntax queries and token rewrites any macro could use.
+//! Extension methods on `syn` and `proc_macro2` types that know nothing
+//! about groupoid itself: syntax queries and token rewrites any macro
+//! could use.
 
 use extend::ext;
 use proc_macro2::{TokenStream, TokenTree};
 use quote::{ToTokens, quote};
 use syn::{
-    Attribute, GenericArgument, Generics, Ident, Path, PathArguments, Token, Type, TypeParam,
-    TypePath,
+    Attribute, GenericArgument, Generics, Ident, Path, PathArguments,
+    Token, Type, TypeParam, TypePath,
     parse::{Parse, ParseStream},
 };
 
@@ -26,7 +27,9 @@ pub(crate) impl Type {
     /// `()`, `PhantomData<..>` or `PhantomPinned`.
     fn zst_value(&self) -> Option<TokenStream> {
         let path = match self.peeled() {
-            Type::Tuple(tuple) => return tuple.elems.is_empty().then(|| quote!(())),
+            Type::Tuple(tuple) => {
+                return tuple.elems.is_empty().then(|| quote!(()));
+            }
             Type::Path(TypePath {
                 qself: None, path, ..
             }) => path,
@@ -46,7 +49,8 @@ pub(crate) impl Type {
     }
 
     /// This type's tokens with every `from` that heads a path replaced by
-    /// `to`, e.g. `Pair<S::Value>` -> `Pair<__GroupoidTargetState::Value>`.
+    /// `to`, e.g. `Pair<S::Value>` ->
+    /// `Pair<__GroupoidTargetState::Value>`.
     fn with_ident_renamed(&self, from: &Ident, to: &Ident) -> TokenStream {
         self.to_token_stream().rename_ident(from, to)
     }
@@ -63,8 +67,10 @@ pub(crate) impl Path {
     /// bare (`Option`), through the module (`option::Option`) or through a
     /// root crate (`core::option::Option`).
     fn is_std_item(&self, module: &str, item: &str) -> bool {
-        let segments: Vec<String> = self.segments.iter().map(|s| s.ident.to_string()).collect();
-        let segments: Vec<&str> = segments.iter().map(String::as_str).collect();
+        let segments: Vec<String> =
+            self.segments.iter().map(|s| s.ident.to_string()).collect();
+        let segments: Vec<&str> =
+            segments.iter().map(String::as_str).collect();
 
         let Some((last, prefix)) = segments.split_last() else {
             return false;
@@ -73,7 +79,10 @@ pub(crate) impl Path {
             && match prefix {
                 [] => true,
                 [m] => *m == module,
-                [root, m] => matches!(*root, "std" | "core" | "alloc") && *m == module,
+                [root, m] => {
+                    matches!(*root, "std" | "core" | "alloc")
+                        && *m == module
+                }
                 _ => false,
             }
     }
@@ -84,7 +93,9 @@ pub(crate) impl Path {
         if !self.is_std_item(module, item) {
             return None;
         }
-        let PathArguments::AngleBracketed(args) = &self.segments.last()?.arguments else {
+        let PathArguments::AngleBracketed(args) =
+            &self.segments.last()?.arguments
+        else {
             return None;
         };
         match args.args.iter().collect::<Vec<_>>().as_slice() {
@@ -119,7 +130,11 @@ pub(crate) impl Attribute {
 pub(crate) impl<T: Parse> Option<T> {
     /// Parses `= <value>` for the argument `key` into this slot, rejecting
     /// a second assignment.
-    fn parse_once(&mut self, key: &Ident, input: ParseStream) -> syn::Result<()> {
+    fn parse_once(
+        &mut self,
+        key: &Ident,
+        input: ParseStream,
+    ) -> syn::Result<()> {
         if self.is_some() {
             return Err(syn::Error::new(
                 key.span(),
@@ -136,13 +151,16 @@ pub(crate) impl<T: Parse> Option<T> {
 /// into every group.
 #[ext]
 impl TokenStream {
-    /// These tokens with every `from` not preceded by `:` replaced by `to`.
+    /// These tokens with every `from` not preceded by `:` replaced by
+    /// `to`.
     fn rename_ident(self, from: &Ident, to: &Ident) -> TokenStream {
         let mut after_colon = false;
         self.into_iter()
             .map(|tt| {
                 let renamed = match tt {
-                    TokenTree::Ident(ref ident) if ident == from && !after_colon => {
+                    TokenTree::Ident(ref ident)
+                        if ident == from && !after_colon =>
+                    {
                         TokenTree::Ident(to.clone())
                     }
                     TokenTree::Group(group) => {
