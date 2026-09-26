@@ -84,7 +84,8 @@ jobs:
   semver-checks:
     name: Semver check
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    # Enable once groupoid is on crates.io; until then there is no baseline.
+    if: github.event_name == 'pull_request' && vars.SEMVER_CHECKS == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
