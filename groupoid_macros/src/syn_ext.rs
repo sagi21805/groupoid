@@ -6,8 +6,11 @@ use extend::ext;
 use proc_macro2::{TokenStream, TokenTree};
 use quote::{ToTokens, quote};
 use syn::{
-    Attribute, Generics, Ident, Path, Token, Type, TypeParam, TypePath,
+    AssocType, Attribute, Generics, Ident, Path, PredicateType, Token,
+    Type, TypeParam, TypeParamBound, TypePath, WherePredicate,
     parse::{Parse, ParseStream},
+    punctuated::Punctuated,
+    visit::Visit,
 };
 
 #[ext]
@@ -103,6 +106,59 @@ pub(crate) impl Generics {
     /// The type parameter named `ident`, if these generics declare one.
     fn type_param_mut(&mut self, ident: &Ident) -> Option<&mut TypeParam> {
         self.type_params_mut().find(|tp| tp.ident == *ident)
+    }
+
+    /// The first `Assoc = Type` binding in a bound on the type parameter
+    /// `param`, inline or in the `where` clause, e.g. `Value = String` in
+    /// `S: Meta<Value = String>`.
+    fn assoc_type_binding(&self, param: &Ident) -> Option<&AssocType> {
+        #[derive(Default)]
+        struct Finder<'ast>(Option<&'ast AssocType>);
+
+        impl<'ast> Visit<'ast> for Finder<'ast> {
+            fn visit_assoc_type(&mut self, assoc: &'ast AssocType) {
+                self.0.get_or_insert(assoc);
+            }
+        }
+
+        let inline = self
+            .type_params()
+            .filter(|tp| tp.ident == *param)
+            .flat_map(|tp| &tp.bounds);
+        let in_where = self
+            .where_clause
+            .iter()
+            .flat_map(|clause| &clause.predicates)
+            .filter_map(|predicate| predicate.bounds_on(param))
+            .flatten();
+
+        inline.chain(in_where).find_map(|bound| {
+            let mut finder = Finder::default();
+            finder.visit_type_param_bound(bound);
+            finder.0
+        })
+    }
+}
+
+#[ext]
+pub(crate) impl WherePredicate {
+    /// This predicate's bounds, when it bounds the bare type `param`, as
+    /// in `S: Meta`.
+    fn bounds_on(
+        &self,
+        param: &Ident,
+    ) -> Option<&Punctuated<TypeParamBound, Token![+]>> {
+        match self {
+            WherePredicate::Type(PredicateType {
+                bounded_ty:
+                    Type::Path(TypePath {
+                        qself: None, path, ..
+                    }),
+                bounds,
+                ..
+            }) if path.is_ident(param) => Some(bounds),
+            _ => None,
+        }
     }
 }
 
