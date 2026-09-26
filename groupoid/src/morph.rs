@@ -1,9 +1,9 @@
 /// Converts a wrapper around one type into the same wrapper around
 /// another.
 ///
-/// `restate_with` rebuilds tuples, ZSTs and bare projections itself, and
+/// `morph_with` rebuilds tuples, ZSTs and bare projections itself, and
 /// peels every other type one generic layer at a time through this trait.
-/// `Option<[S::Value; 2]>` is restated by `Option`'s impl, which calls
+/// `Option<[S::Value; 2]>` is morphed by `Option`'s impl, which calls
 /// the array's impl, which calls `f`.
 ///
 /// Only one generic argument of a layer may mention the state. The
@@ -11,9 +11,9 @@
 /// `Result`.
 ///
 /// ```
-/// use groupoid::{Restate, blueprint, group, state, typestate};
+/// use groupoid::{Morph, group, state, template, typestate};
 ///
-/// #[blueprint]
+/// #[template]
 /// trait Meta {
 ///     type Value;
 /// }
@@ -35,10 +35,10 @@
 ///
 /// struct Pair<T>(T, T);
 ///
-/// impl<A, B> Restate<A, B> for Pair<A> {
+/// impl<A, B> Morph<A, B> for Pair<A> {
 ///     type Output = Pair<B>;
 ///
-///     fn restate(self, f: &mut impl FnMut(A) -> B) -> Pair<B> {
+///     fn morph(self, f: &mut impl FnMut(A) -> B) -> Pair<B> {
 ///         Pair(f(self.0), f(self.1))
 ///     }
 /// }
@@ -52,7 +52,7 @@
 ///     let small = Wrap::<Small> {
 ///         pair: Pair(Pair(1, 2), Pair(3, 4)),
 ///     };
-///     let big: Wrap<Big> = small.restate_with(u64::from);
+///     let big: Wrap<Big> = small.morph_with(u64::from);
 ///     assert_eq!(big.pair.1.0, 3);
 /// }
 /// ```
@@ -62,19 +62,19 @@
 /// The `core`, `alloc` and `std` features provide impls for the types of
 /// those crates. With a feature off, the orphan rule still allows impls
 /// for a local projection type, such as
-/// `impl<B> Restate<MyValue, B> for Option<MyValue>`.
+/// `impl<B> Morph<MyValue, B> for Option<MyValue>`.
 #[diagnostic::on_unimplemented(
-    message = "implement `groupoid::Restate<{Src}, {Dst}>` for `{Self}` \
-               to restate it",
+    message = "implement `groupoid::Morph<{Src}, {Dst}>` for `{Self}` to \
+               morph it",
     note = "for built-in types, enable the `core`, `alloc` or `std` \
             feature instead"
 )]
-pub trait Restate<Src, Dst> {
+pub trait Morph<Src, Dst> {
     /// `Self` with `Dst` in place of every `Src`.
     type Output;
 
     /// Rebuilds `self`, converting each `Src` with `f`.
-    fn restate(self, f: &mut impl FnMut(Src) -> Dst) -> Self::Output;
+    fn morph(self, f: &mut impl FnMut(Src) -> Dst) -> Self::Output;
 }
 
 #[cfg(feature = "core")]
@@ -85,61 +85,61 @@ mod core_impls {
         num::Wrapping,
     };
 
-    use super::Restate;
+    use super::Morph;
 
-    impl<A, B> Restate<A, B> for Option<A> {
+    impl<A, B> Morph<A, B> for Option<A> {
         type Output = Option<B>;
 
-        fn restate(self, f: &mut impl FnMut(A) -> B) -> Option<B> {
+        fn morph(self, f: &mut impl FnMut(A) -> B) -> Option<B> {
             self.map(f)
         }
     }
 
-    impl<A, B, const N: usize> Restate<A, B> for [A; N] {
+    impl<A, B, const N: usize> Morph<A, B> for [A; N] {
         type Output = [B; N];
 
-        fn restate(self, f: &mut impl FnMut(A) -> B) -> [B; N] {
+        fn morph(self, f: &mut impl FnMut(A) -> B) -> [B; N] {
             self.map(f)
         }
     }
 
     /// Maps the `Ok` value.
-    impl<A, B, E> Restate<A, B> for Result<A, E> {
+    impl<A, B, E> Morph<A, B> for Result<A, E> {
         type Output = Result<B, E>;
 
-        fn restate(self, f: &mut impl FnMut(A) -> B) -> Result<B, E> {
+        fn morph(self, f: &mut impl FnMut(A) -> B) -> Result<B, E> {
             self.map(f)
         }
     }
 
-    impl<A, B> Restate<A, B> for Cell<A> {
+    impl<A, B> Morph<A, B> for Cell<A> {
         type Output = Cell<B>;
 
-        fn restate(self, f: &mut impl FnMut(A) -> B) -> Cell<B> {
+        fn morph(self, f: &mut impl FnMut(A) -> B) -> Cell<B> {
             Cell::new(f(self.into_inner()))
         }
     }
 
-    impl<A, B> Restate<A, B> for RefCell<A> {
+    impl<A, B> Morph<A, B> for RefCell<A> {
         type Output = RefCell<B>;
 
-        fn restate(self, f: &mut impl FnMut(A) -> B) -> RefCell<B> {
+        fn morph(self, f: &mut impl FnMut(A) -> B) -> RefCell<B> {
             RefCell::new(f(self.into_inner()))
         }
     }
 
-    impl<A, B> Restate<A, B> for Reverse<A> {
+    impl<A, B> Morph<A, B> for Reverse<A> {
         type Output = Reverse<B>;
 
-        fn restate(self, f: &mut impl FnMut(A) -> B) -> Reverse<B> {
+        fn morph(self, f: &mut impl FnMut(A) -> B) -> Reverse<B> {
             Reverse(f(self.0))
         }
     }
 
-    impl<A, B> Restate<A, B> for Wrapping<A> {
+    impl<A, B> Morph<A, B> for Wrapping<A> {
         type Output = Wrapping<B>;
 
-        fn restate(self, f: &mut impl FnMut(A) -> B) -> Wrapping<B> {
+        fn morph(self, f: &mut impl FnMut(A) -> B) -> Wrapping<B> {
             Wrapping(f(self.0))
         }
     }
@@ -155,61 +155,61 @@ mod alloc_impls {
         vec::Vec,
     };
 
-    use super::Restate;
+    use super::Morph;
 
-    impl<A, B> Restate<A, B> for Box<A> {
+    impl<A, B> Morph<A, B> for Box<A> {
         type Output = Box<B>;
 
-        fn restate(self, f: &mut impl FnMut(A) -> B) -> Box<B> {
+        fn morph(self, f: &mut impl FnMut(A) -> B) -> Box<B> {
             Box::new(f(*self))
         }
     }
 
-    impl<A, B> Restate<A, B> for Vec<A> {
+    impl<A, B> Morph<A, B> for Vec<A> {
         type Output = Vec<B>;
 
-        fn restate(self, f: &mut impl FnMut(A) -> B) -> Vec<B> {
+        fn morph(self, f: &mut impl FnMut(A) -> B) -> Vec<B> {
             self.into_iter().map(f).collect()
         }
     }
 
-    impl<A, B> Restate<A, B> for VecDeque<A> {
+    impl<A, B> Morph<A, B> for VecDeque<A> {
         type Output = VecDeque<B>;
 
-        fn restate(self, f: &mut impl FnMut(A) -> B) -> VecDeque<B> {
+        fn morph(self, f: &mut impl FnMut(A) -> B) -> VecDeque<B> {
             self.into_iter().map(f).collect()
         }
     }
 
-    impl<A, B> Restate<A, B> for LinkedList<A> {
+    impl<A, B> Morph<A, B> for LinkedList<A> {
         type Output = LinkedList<B>;
 
-        fn restate(self, f: &mut impl FnMut(A) -> B) -> LinkedList<B> {
+        fn morph(self, f: &mut impl FnMut(A) -> B) -> LinkedList<B> {
             self.into_iter().map(f).collect()
         }
     }
 
-    impl<A, B: Ord> Restate<A, B> for BTreeSet<A> {
+    impl<A, B: Ord> Morph<A, B> for BTreeSet<A> {
         type Output = BTreeSet<B>;
 
-        fn restate(self, f: &mut impl FnMut(A) -> B) -> BTreeSet<B> {
+        fn morph(self, f: &mut impl FnMut(A) -> B) -> BTreeSet<B> {
             self.into_iter().map(f).collect()
         }
     }
 
-    impl<A, B: Ord> Restate<A, B> for BinaryHeap<A> {
+    impl<A, B: Ord> Morph<A, B> for BinaryHeap<A> {
         type Output = BinaryHeap<B>;
 
-        fn restate(self, f: &mut impl FnMut(A) -> B) -> BinaryHeap<B> {
+        fn morph(self, f: &mut impl FnMut(A) -> B) -> BinaryHeap<B> {
             self.into_iter().map(f).collect()
         }
     }
 
     /// Maps the values.
-    impl<K: Ord, A, B> Restate<A, B> for BTreeMap<K, A> {
+    impl<K: Ord, A, B> Morph<A, B> for BTreeMap<K, A> {
         type Output = BTreeMap<K, B>;
 
-        fn restate(self, f: &mut impl FnMut(A) -> B) -> BTreeMap<K, B> {
+        fn morph(self, f: &mut impl FnMut(A) -> B) -> BTreeMap<K, B> {
             self.into_iter().map(|(k, v)| (k, f(v))).collect()
         }
     }
@@ -220,25 +220,25 @@ mod std_impls {
     use core::hash::{BuildHasher, Hash};
     use std::collections::{HashMap, HashSet};
 
-    use super::Restate;
+    use super::Morph;
 
-    impl<A, B: Eq + Hash, H: BuildHasher + Default> Restate<A, B>
+    impl<A, B: Eq + Hash, H: BuildHasher + Default> Morph<A, B>
         for HashSet<A, H>
     {
         type Output = HashSet<B, H>;
 
-        fn restate(self, f: &mut impl FnMut(A) -> B) -> HashSet<B, H> {
+        fn morph(self, f: &mut impl FnMut(A) -> B) -> HashSet<B, H> {
             self.into_iter().map(f).collect()
         }
     }
 
     /// Maps the values.
-    impl<K: Eq + Hash, A, B, H: BuildHasher + Default> Restate<A, B>
+    impl<K: Eq + Hash, A, B, H: BuildHasher + Default> Morph<A, B>
         for HashMap<K, A, H>
     {
         type Output = HashMap<K, B, H>;
 
-        fn restate(self, f: &mut impl FnMut(A) -> B) -> HashMap<K, B, H> {
+        fn morph(self, f: &mut impl FnMut(A) -> B) -> HashMap<K, B, H> {
             self.into_iter().map(|(k, v)| (k, f(v))).collect()
         }
     }

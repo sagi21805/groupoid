@@ -1,10 +1,10 @@
 #![allow(non_camel_case_types)]
 
 use groupoid_macros::{
-    blueprint, group, group_impl, group_trait, state, typestate,
+    group, group_impl, group_trait, state, template, typestate,
 };
 
-#[blueprint]
+#[template]
 trait Testing {
     type Meta;
 }

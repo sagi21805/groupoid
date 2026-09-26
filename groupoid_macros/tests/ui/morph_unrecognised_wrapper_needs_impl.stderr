@@ -1,0 +1,28 @@
+error[E0277]: implement `groupoid::Morph<u32, _>` for `Pair<u32>` to morph it
+  --> tests/ui/morph_unrecognised_wrapper_needs_impl.rs:37:33
+   |
+37 |     let _big: Wrap<Big> = small.morph_with(|v| v as i32);
+   |                                 ^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Morph<u32, _>` is not implemented for `Pair<u32>`
+  --> tests/ui/morph_unrecognised_wrapper_needs_impl.rs:28:1
+   |
+28 | struct Pair<T>(T, T);
+   | ^^^^^^^^^^^^^^
+   = note: for built-in types, enable the `core`, `alloc` or `std` feature instead
+   = help: the following other types implement trait `Morph<Src, Dst>`:
+             BTreeMap<K, A>
+             BTreeSet<A>
+             BinaryHeap<A>
+             Box<A>
+             Cell<A>
+             HashMap<K, A, H>
+             HashSet<A, H>
+             LinkedList<A>
+           and $N others
+note: required by a bound in `Wrap::<S>::morph_with`
+  --> tests/ui/morph_unrecognised_wrapper_needs_impl.rs:30:1
+   |
+30 | #[typestate(state = S)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Wrap::<S>::morph_with`
+   = note: this error originates in the attribute macro `typestate` (in Nightly builds, run with -Z macro-backtrace for more info)

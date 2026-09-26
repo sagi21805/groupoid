@@ -1,12 +1,12 @@
-//! `restate_with` rebuilds a struct for another state by value, through
-//! `Option`, arrays, `Box`, tuples and user `Restate` impls.
+//! `morph_with` rebuilds a struct for another state by value, through
+//! `Option`, arrays, `Box`, tuples and user `Morph` impls.
 
 use core::marker::PhantomData;
-use groupoid::Restate;
-use groupoid_macros::{blueprint, group, state, typestate};
+use groupoid::Morph;
+use groupoid_macros::{group, state, template, typestate};
 use std::collections::HashMap;
 
-#[blueprint]
+#[template]
 trait Meta {
     type Value;
 }
@@ -28,15 +28,15 @@ impl Meta for (Big,) {
     type Value = i32;
 }
 
-// --- a user wrapper with its own `Restate` impl ---
+// --- a user wrapper with its own `Morph` impl ---
 
 #[derive(Debug, PartialEq)]
 struct Pair<T>(T, T);
 
-impl<A, B> Restate<A, B> for Pair<A> {
+impl<A, B> Morph<A, B> for Pair<A> {
     type Output = Pair<B>;
 
-    fn restate(self, f: &mut impl FnMut(A) -> B) -> Pair<B> {
+    fn morph(self, f: &mut impl FnMut(A) -> B) -> Pair<B> {
         Pair(f(self.0), f(self.1))
     }
 }
@@ -95,9 +95,9 @@ fn assert_round_trip(big: Wrap<Big>) {
 }
 
 #[test]
-fn restate_with_converts_every_projection_through_f() {
+fn morph_with_converts_every_projection_through_f() {
     let mut calls = 0;
-    let big: Wrap<Big> = sample().restate_with(|v| {
+    let big: Wrap<Big> = sample().morph_with(|v| {
         calls += 1;
         v as i32
     });
@@ -110,19 +110,19 @@ fn restate_with_converts_every_projection_through_f() {
 }
 
 #[test]
-fn restate_with_sees_none_without_calling_f() {
+fn morph_with_sees_none_without_calling_f() {
     let small = Wrap::<Small> {
         maybe: None,
         nested: None,
         ..sample()
     };
-    let big: Wrap<Big> = small.restate_with(|v| v as i32);
+    let big: Wrap<Big> = small.morph_with(|v| v as i32);
     assert_eq!(big.maybe, None);
     assert_eq!(big.nested, None);
 }
 
 // --- the `Option` field would be rejected by `unsafe_transmute = true`,
-// yet `restate_with` exists ---
+// yet `morph_with` exists ---
 
 #[typestate(state = S)]
 struct NotTransmutable<S: Meta> {
@@ -130,11 +130,11 @@ struct NotTransmutable<S: Meta> {
 }
 
 #[test]
-fn a_struct_without_the_in_place_path_still_restates_by_value() {
+fn a_struct_without_the_in_place_path_still_morphs_by_value() {
     let big: NotTransmutable<Big> = NotTransmutable::<Small> {
         value: Some(0xdead_beef),
     }
-    .restate_with(|v| v as i32);
+    .morph_with(|v| v as i32);
     assert_eq!(big.value, Some(0xdead_beefu32 as i32));
 }
 
@@ -155,7 +155,7 @@ fn other_generics_carry_over_to_the_target() {
         value: 2,
         tail: 3,
     };
-    let big: Ordered<Big, u64> = small.restate_with(|v| v as i32);
+    let big: Ordered<Big, u64> = small.morph_with(|v| v as i32);
     assert_eq!((big.head, big.value, big.tail), (1, 2, 3));
 }
 
@@ -165,11 +165,11 @@ struct Positional<S: Meta>(u8, S::Value, Option<S::Value>);
 #[test]
 fn tuple_structs_are_rebuilt_positionally() {
     let big: Positional<Big> =
-        Positional::<Small>(1, 2, Some(3)).restate_with(|v| v as i32);
+        Positional::<Small>(1, 2, Some(3)).morph_with(|v| v as i32);
     assert_eq!((big.0, big.1, big.2), (1, 2, Some(3)));
 }
 
-// --- forced alignment still generates `restate_with`
+// --- forced alignment still generates `morph_with`
 // ---------------------
 
 #[state]
@@ -196,12 +196,12 @@ struct Forced<S: Meta> {
 }
 
 #[test]
-fn forced_alignment_mode_still_generates_restate_with() {
+fn forced_alignment_mode_still_generates_morph_with() {
     let wide = Forced::<Wide> {
         value: u64::from_ne_bytes([1, 2, 3, 4, 5, 6, 7, 8]),
         tag: 9,
     };
-    let bytes: Forced<Bytes> = wide.restate_with(u64::to_ne_bytes);
+    let bytes: Forced<Bytes> = wide.morph_with(u64::to_ne_bytes);
     assert_eq!(bytes.value, [1, 2, 3, 4, 5, 6, 7, 8]);
     assert_eq!(bytes.tag, 9);
 }
@@ -217,12 +217,12 @@ struct Unforced<S: Meta> {
 }
 
 #[test]
-fn restate_with_ignores_alignment_altogether() {
+fn morph_with_ignores_alignment_altogether() {
     let wide = Unforced::<Wide> {
         value: u64::from_ne_bytes([1, 2, 3, 4, 5, 6, 7, 8]),
         tag: 9,
     };
-    let bytes: Unforced<Bytes> = wide.restate_with(u64::to_ne_bytes);
+    let bytes: Unforced<Bytes> = wide.morph_with(u64::to_ne_bytes);
     assert_eq!(bytes.value, [1, 2, 3, 4, 5, 6, 7, 8]);
     assert_eq!(bytes.tag, 9);
 }
@@ -237,8 +237,8 @@ struct Unpinned<S: Meta> {
 }
 
 #[test]
-fn restate_only_structs_keep_their_own_repr() {
+fn morph_only_structs_keep_their_own_repr() {
     let big: Unpinned<Big> =
-        Unpinned::<Small> { value: 7, tag: 9 }.restate_with(|v| v as i32);
+        Unpinned::<Small> { value: 7, tag: 9 }.morph_with(|v| v as i32);
     assert_eq!((big.value, big.tag), (7, 9));
 }

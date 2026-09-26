@@ -37,7 +37,7 @@ pub(crate) struct TypeState {
 
 impl TypeState {
     /// Resolves the state parameter, bounds it by `::groupoid::State`,
-    /// checks that `restate_with` can peel every field, and checks the
+    /// checks that `morph_with` can peel every field, and checks the
     /// struct's layout when transmute is on.
     pub(crate) fn new(
         args: TypeStateArgs,
@@ -90,10 +90,10 @@ impl TypeState {
             Transmute::On(align) => Some(self.transmute_impls(align)),
             Transmute::Off => None,
         };
-        let restate_impl = self
+        let morph_impl = self
             .projection
             .as_ref()
-            .map(|projection| self.restate_impl(projection));
+            .map(|projection| self.morph_impl(projection));
 
         quote! {
             #item_struct
@@ -102,7 +102,7 @@ impl TypeState {
 
             #transmute_impls
 
-            #restate_impl
+            #morph_impl
         }
     }
 
@@ -133,7 +133,7 @@ impl TypeState {
     }
 
     /// `SizedWithState<N, A>` for the struct, pinned by the state's
-    /// `#[size(N)]` blueprint type.
+    /// `#[size(N)]` template type.
     fn sized_with_state_impl(&self, align: &Alignment) -> TokenStream {
         let struct_ident = &self.item_struct.ident;
         let (_, ty_generics, _) =
@@ -183,19 +183,19 @@ impl TypeState {
         }
     }
 
-    /// The inherent `restate_with` method, which rebuilds the struct for
+    /// The inherent `morph_with` method, which rebuilds the struct for
     /// another state by value.
-    fn restate_impl(&self, projection: &Ident) -> TokenStream {
+    fn morph_impl(&self, projection: &Ident) -> TokenStream {
         let struct_ident = &self.item_struct.ident;
         let state = &self.state;
         let target_state = &self.target_state.ident;
         let target_ty = &self.target_ty;
-        let f = &crate::naming::restate_fn_ident();
-        let elem = &crate::naming::restate_elem_ident();
+        let f = &crate::naming::morph_fn_ident();
+        let elem = &crate::naming::morph_elem_ident();
         let (impl_generics, ty_generics, where_clause) =
             self.item_struct.generics.split_for_impl();
 
-        let ctx = RestateCtx {
+        let ctx = MorphCtx {
             state,
             target_state,
             projection,
@@ -203,7 +203,7 @@ impl TypeState {
             elem,
         };
         let mut predicates = Vec::new();
-        let body = self.restate_body(&ctx, &mut predicates);
+        let body = self.morph_body(&ctx, &mut predicates);
 
         let mut generics = Generics::default();
         generics
@@ -219,9 +219,9 @@ impl TypeState {
                 /// projection through the state with `f`.
                 ///
                 /// Tuples are rebuilt in place, and every other wrapper goes
-                /// through `groupoid::Restate`, one layer at a time. Fields
+                /// through `groupoid::Morph`, one layer at a time. Fields
                 /// that don't mention the state move unchanged.
-                pub fn restate_with #with_impl_generics (
+                pub fn morph_with #with_impl_generics (
                     self,
                     mut #f: impl FnMut(#state::#projection)
                         -> #target_state::#projection,
@@ -233,10 +233,10 @@ impl TypeState {
     }
 
     /// The struct literal rebuilding `self` field by field for the target
-    /// state, pushing the `Restate` bounds it needs onto `predicates`.
-    fn restate_body(
+    /// state, pushing the `Morph` bounds it needs onto `predicates`.
+    fn morph_body(
         &self,
-        ctx: &RestateCtx,
+        ctx: &MorphCtx,
         predicates: &mut Vec<WherePredicate>,
     ) -> TokenStream {
         let struct_ident = &self.item_struct.ident;
@@ -248,7 +248,7 @@ impl TypeState {
                         .ident
                         .as_ref()
                         .expect("named fields have identifiers");
-                    let expr = field.ty.restate_expr(
+                    let expr = field.ty.morph_expr(
                         ctx,
                         quote!(self.#ident),
                         predicates,
@@ -261,7 +261,7 @@ impl TypeState {
                 let fields = unnamed.unnamed.iter().enumerate().map(
                     |(i, field)| {
                         let index = Index::from(i);
-                        field.ty.restate_expr(
+                        field.ty.morph_expr(
                             ctx,
                             quote!(self.#index),
                             predicates,
@@ -333,7 +333,7 @@ impl Parse for TypeStateArgs {
 
 /// Whether `#[typestate]` also derives the in-place `transmute_state`.
 pub(crate) enum Transmute {
-    /// Default, only `WithState` and `restate_with`.
+    /// Default, only `WithState` and `morph_with`.
     Off,
     /// `unsafe_transmute = true`, additionally implements `SizedWithState`
     /// and `TransmutableState`.
@@ -416,8 +416,8 @@ impl ItemStruct {
         Ok(Some(first))
     }
 
-    /// Checks that every wrapper `restate_with` peels has one generic
-    /// argument to restate.
+    /// Checks that every wrapper `morph_with` peels has one generic
+    /// argument to morph.
     fn require_single_state_args(&self, state: &Ident) -> syn::Result<()> {
         for field in self.fields.iter() {
             if let Some(layer) = field.ty.ambiguous_layer(state) {
@@ -427,7 +427,7 @@ impl ItemStruct {
                         "give this wrapper one generic argument that \
                          mentions `{state}`, such as a local \
                          `Wrapper<{state}::Assoc>` that implements \
-                         `groupoid::Restate`"
+                         `groupoid::Morph`"
                     ),
                 ));
             }
@@ -449,7 +449,7 @@ impl ItemStruct {
                         "make this field `{state}::Assoc`, a ZST or a \
                          type without `{state}`, or remove \
                          `unsafe_transmute = true` and convert with \
-                         `restate_with`"
+                         `morph_with`"
                     ),
                 ));
             }
@@ -574,34 +574,34 @@ impl Type {
     }
 
     /// The expression rebuilding `expr`, a value of this type, for the
-    /// target state. Pushes the `Restate` bounds it needs onto
+    /// target state. Pushes the `Morph` bounds it needs onto
     /// `predicates`.
-    fn restate_expr(
+    fn morph_expr(
         &self,
-        ctx: &RestateCtx,
+        ctx: &MorphCtx,
         expr: TokenStream,
         predicates: &mut Vec<WherePredicate>,
     ) -> TokenStream {
-        match self.restate_shape(ctx.state) {
-            RestateShape::Unchanged => expr,
-            RestateShape::Direct => {
+        match self.morph_shape(ctx.state) {
+            MorphShape::Unchanged => expr,
+            MorphShape::Direct => {
                 let f = ctx.f;
                 quote!(#f(#expr))
             }
-            RestateShape::Zst(value) => value,
-            RestateShape::Tuple(tuple) => {
-                tuple.restate_tuple(ctx, expr, predicates)
+            MorphShape::Zst(value) => value,
+            MorphShape::Tuple(tuple) => {
+                tuple.morph_tuple(ctx, expr, predicates)
             }
-            RestateShape::Wrapped(inner) => {
-                let RestateCtx {
+            MorphShape::Wrapped(inner) => {
+                let MorphCtx {
                     state,
                     target_state,
                     elem,
                     ..
                 } = ctx;
                 let inner_expr =
-                    inner.restate_expr(ctx, quote!(#elem), predicates);
-                self.restate_call(
+                    inner.morph_expr(ctx, quote!(#elem), predicates);
+                self.morph_call(
                     expr,
                     quote!(#inner),
                     inner.with_ident_renamed(state, target_state),
@@ -610,15 +610,15 @@ impl Type {
                     predicates,
                 )
             }
-            RestateShape::Opaque => {
-                let RestateCtx {
+            MorphShape::Opaque => {
+                let MorphCtx {
                     state,
                     target_state,
                     projection,
                     f,
                     ..
                 } = ctx;
-                self.restate_call(
+                self.morph_call(
                     expr,
                     quote!(#state::#projection),
                     quote!(#target_state::#projection),
@@ -630,30 +630,30 @@ impl Type {
         }
     }
 
-    /// How `restate_expr` rebuilds a value of this type.
-    fn restate_shape(&self, state: &Ident) -> RestateShape<'_> {
+    /// How `morph_expr` rebuilds a value of this type.
+    fn morph_shape(&self, state: &Ident) -> MorphShape<'_> {
         if !self.mentions_ident(state) {
-            return RestateShape::Unchanged;
+            return MorphShape::Unchanged;
         }
         if self.state_projection(state).is_some() {
-            return RestateShape::Direct;
+            return MorphShape::Direct;
         }
         if let Some(value) = self.zst_value() {
-            return RestateShape::Zst(value);
+            return MorphShape::Zst(value);
         }
         if let Type::Tuple(tuple) = self.peeled() {
-            return RestateShape::Tuple(tuple);
+            return MorphShape::Tuple(tuple);
         }
 
-        self.restate_inner(state)
-            .map_or(RestateShape::Opaque, RestateShape::Wrapped)
+        self.morph_inner(state)
+            .map_or(MorphShape::Opaque, MorphShape::Wrapped)
     }
 
     /// The one generic argument that mentions the state, or the element
     /// of an array.
     ///
     /// `Option<[S::Value; 2]> -> [S::Value; 2]`
-    fn restate_inner(&self, state: &Ident) -> Option<&Type> {
+    fn morph_inner(&self, state: &Ident) -> Option<&Type> {
         if let Type::Array(array) = self.peeled() {
             return Some(&array.elem);
         }
@@ -693,43 +693,43 @@ impl Type {
         found
     }
 
-    /// The first layer `restate_with` would reach that has several
+    /// The first layer `morph_with` would reach that has several
     /// different generic arguments mentioning the state.
     ///
     /// `Option<Result<S::Value, [S::Value; 2]>> -> Result<..>`
     fn ambiguous_layer(&self, state: &Ident) -> Option<&Type> {
-        match self.restate_shape(state) {
-            RestateShape::Unchanged
-            | RestateShape::Direct
-            | RestateShape::Zst(_) => None,
-            RestateShape::Tuple(tuple) => {
+        match self.morph_shape(state) {
+            MorphShape::Unchanged
+            | MorphShape::Direct
+            | MorphShape::Zst(_) => None,
+            MorphShape::Tuple(tuple) => {
                 tuple.elems.iter().find_map(|ty| ty.ambiguous_layer(state))
             }
-            RestateShape::Wrapped(inner) => inner.ambiguous_layer(state),
-            RestateShape::Opaque => {
+            MorphShape::Wrapped(inner) => inner.ambiguous_layer(state),
+            MorphShape::Opaque => {
                 (self.state_args(state).len() > 1).then_some(self)
             }
         }
     }
 
-    /// A `Restate<src, dst>` call on `expr` with the closure `convert`,
+    /// A `Morph<src, dst>` call on `expr` with the closure `convert`,
     /// and the bound it needs.
-    fn restate_call(
+    fn morph_call(
         &self,
         expr: TokenStream,
         src: TokenStream,
         dst: TokenStream,
         convert: TokenStream,
-        ctx: &RestateCtx,
+        ctx: &MorphCtx,
         predicates: &mut Vec<WherePredicate>,
     ) -> TokenStream {
         let target_ty =
             self.with_ident_renamed(ctx.state, ctx.target_state);
 
         predicates.push(parse_quote!(
-            #self: ::groupoid::Restate<#src, #dst, Output = #target_ty>
+            #self: ::groupoid::Morph<#src, #dst, Output = #target_ty>
         ));
-        quote!(<#self as ::groupoid::Restate<#src, #dst>>::restate(#expr, &mut #convert))
+        quote!(<#self as ::groupoid::Morph<#src, #dst>>::morph(#expr, &mut #convert))
     }
 
     /// `Value` when this type is `S::Value`.
@@ -760,9 +760,9 @@ impl Type {
 #[ext]
 impl TypeTuple {
     /// `(T, ..)`, destructured and rebuilt element by element.
-    fn restate_tuple(
+    fn morph_tuple(
         &self,
-        ctx: &RestateCtx,
+        ctx: &MorphCtx,
         expr: TokenStream,
         predicates: &mut Vec<WherePredicate>,
     ) -> TokenStream {
@@ -771,7 +771,7 @@ impl TypeTuple {
             .collect();
         let elems =
             self.elems.iter().zip(&bindings).map(|(ty, binding)| {
-                ty.restate_expr(ctx, quote!(#binding), predicates)
+                ty.morph_expr(ctx, quote!(#binding), predicates)
             });
         quote!({
             let (#(#bindings,)*) = #expr;
@@ -780,8 +780,8 @@ impl TypeTuple {
     }
 }
 
-/// How `Type::restate_expr` rebuilds a value for the target state.
-enum RestateShape<'a> {
+/// How `Type::morph_expr` rebuilds a value for the target state.
+enum MorphShape<'a> {
     /// A type that doesn't mention the state, moved as is.
     Unchanged,
     /// `S::Value`, passed to `f`.
@@ -790,9 +790,9 @@ enum RestateShape<'a> {
     Zst(TokenStream),
     /// `(T, ..)`
     Tuple(&'a TypeTuple),
-    /// `Wrapper<T>` or `[T; N]`, one `Restate` layer around `T`.
+    /// `Wrapper<T>` or `[T; N]`, one `Morph` layer around `T`.
     Wrapped(&'a Type),
-    /// Anything else, one `Restate` call on the projection.
+    /// Anything else, one `Morph` call on the projection.
     Opaque,
 }
 
@@ -811,8 +811,8 @@ impl<'ast> Visit<'ast> for Projections<'_> {
     }
 }
 
-/// What `Type::restate_expr` needs to convert a projection.
-struct RestateCtx<'a> {
+/// What `Type::morph_expr` needs to convert a projection.
+struct MorphCtx<'a> {
     state: &'a Ident,
     target_state: &'a Ident,
     /// `Value` in `S::Value`.

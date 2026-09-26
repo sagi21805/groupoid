@@ -2,10 +2,10 @@
 //! is a bare projection, a ZST, or independent of the state.
 
 use core::marker::PhantomData;
-use groupoid::TransmuteState;
-use groupoid_macros::{blueprint, group, state, typestate};
+use groupoid::Isomorphic;
+use groupoid_macros::{group, state, template, typestate};
 
-#[blueprint]
+#[template]
 trait Meta {
     type Value;
 }

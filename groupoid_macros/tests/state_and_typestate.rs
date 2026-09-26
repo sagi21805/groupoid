@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use groupoid_macros::{blueprint, group, state, typestate};
+use groupoid_macros::{group, state, template, typestate};
 
 // --- #[state] on generic structs
 // -------------------------------------------------
@@ -141,10 +141,10 @@ fn typestate_infers_sole_generic_as_state() {
     same_state::<Inferred<StateA>>();
 }
 
-// --- SizedWithState derives despite an extra, non-blueprint bound
+// --- SizedWithState derives despite an extra, non-template bound
 // ----------------
 
-#[blueprint]
+#[template]
 trait Sized4 {
     type Value;
 }
@@ -164,7 +164,7 @@ impl Sized4 for (Sized4State,) {
     type Value = u32;
 }
 
-// Extra bounds next to the blueprint trait still derive `SizedWithState`.
+// Extra bounds next to the template trait still derive `SizedWithState`.
 #[typestate(state = S, unsafe_transmute = true)]
 struct SizedWrap<S: Sized4 + std::fmt::Debug> {
     #[allow(dead_code)]
@@ -179,7 +179,7 @@ fn assert_sized_with_state<
 }
 
 #[test]
-fn sized_with_state_derives_despite_extra_non_blueprint_bound() {
+fn sized_with_state_derives_despite_extra_non_template_bound() {
     // `u32` is 4 bytes and 4-aligned, so both halves of the layout key are
     // 4.
     assert_sized_with_state::<SizedWrap<Sized4State>, 4, 4>();

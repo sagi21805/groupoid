@@ -1,4 +1,4 @@
-// `#[group]` on a trait without `#[blueprint]` fails to find the marker
+// `#[group]` on a trait without `#[template]` fails to find the marker
 // trait.
 #![allow(dead_code)]
 use groupoid_macros::{group, state};

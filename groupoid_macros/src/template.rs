@@ -2,13 +2,13 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{ItemTrait, TraitItem, TraitItemType, parse_quote};
 
-pub struct Blueprint<'ast> {
+pub struct Template<'ast> {
     inner: &'ast ItemTrait,
 }
 
-impl<'ast> Blueprint<'ast> {
-    pub fn new(inner: &'ast ItemTrait) -> Blueprint<'ast> {
-        Blueprint { inner }
+impl<'ast> Template<'ast> {
+    pub fn new(inner: &'ast ItemTrait) -> Template<'ast> {
+        Template { inner }
     }
 
     /// The trait with a `Marker` associated type and a `State`
@@ -34,7 +34,7 @@ impl<'ast> Blueprint<'ast> {
                 &self.inner.ident,
                 format!(
                     "declare exactly one associated type in a \
-                     `#[blueprint]` trait; this one has {}",
+                     `#[template]` trait; this one has {}",
                     type_definitions.len()
                 ),
             ));

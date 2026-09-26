@@ -1,6 +1,6 @@
-use groupoid_macros::{blueprint, group, state, typestate};
+use groupoid_macros::{group, state, template, typestate};
 
-#[blueprint]
+#[template]
 trait Testing {
     type Meta;
 }

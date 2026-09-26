@@ -1,7 +1,7 @@
 use quote::format_ident;
 use syn::Ident;
 
-/// The marker trait `#[blueprint]` generates, e.g. `A` -> `AGroupMarker`.
+/// The marker trait `#[template]` generates, e.g. `A` -> `AGroupMarker`.
 pub fn group_marker_ident(trait_ident: &Ident) -> Ident {
     format_ident!("{}GroupMarker", trait_ident)
 }
@@ -20,18 +20,18 @@ pub fn helper_mod_ident(trait_ident: &Ident) -> Ident {
     )
 }
 
-/// The state parameter `restate_with` transitions to.
+/// The state parameter `morph_with` transitions to.
 pub fn target_state_ident() -> Ident {
     format_ident!("__GroupoidTargetState")
 }
 
-/// The conversion closure parameter of `restate_with`.
-pub fn restate_fn_ident() -> Ident {
+/// The conversion closure parameter of `morph_with`.
+pub fn morph_fn_ident() -> Ident {
     format_ident!("f")
 }
 
-/// The binding for one projected value inside `restate_with`.
-pub fn restate_elem_ident() -> Ident {
+/// The binding for one projected value inside `morph_with`.
+pub fn morph_elem_ident() -> Ident {
     format_ident!("v")
 }
 

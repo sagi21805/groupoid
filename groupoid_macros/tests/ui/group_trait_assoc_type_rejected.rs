@@ -1,9 +1,9 @@
 // `#[group_trait]` rejects an associated type, which the blanket impl
 // couldn't define.
 #![allow(dead_code)]
-use groupoid_macros::{blueprint, group_trait};
+use groupoid_macros::{group_trait, template};
 
-#[blueprint]
+#[template]
 trait Testing {
     type Meta;
 }

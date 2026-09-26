@@ -1,9 +1,9 @@
 // A wrapped projection such as `Option<S::Value>` rejects
 // `unsafe_transmute = true`.
 #![allow(dead_code)]
-use groupoid_macros::{blueprint, group, state, typestate};
+use groupoid_macros::{group, state, template, typestate};
 
-#[blueprint]
+#[template]
 trait Meta {
     type Value;
 }
