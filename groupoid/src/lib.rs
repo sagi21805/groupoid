@@ -5,10 +5,10 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-mod restate;
+mod morph;
 
 pub use groupoid_macros::*;
-pub use restate::Restate;
+pub use morph::Morph;
 
 /// A type that represents a state of an object.
 pub trait State {}
@@ -63,7 +63,7 @@ pub trait SizedWithState<const SIZE: usize, const ALIGN: usize>:
                `{Self}` to transmute it into state `{To}`",
     note = "both states' groups need the same `#[size(N)]`, and the \
             target must be the same struct",
-    note = "or convert by value with `restate_with`, which needs neither"
+    note = "or convert by value with `morph_with`, which needs neither"
 )]
 pub unsafe trait TransmutableState<
     To: State,
@@ -108,7 +108,7 @@ pub unsafe trait TransmutableState<
 /// ```
 ///
 /// Both states must agree on `SIZE` and `ALIGN` (see [`SizedWithState`]).
-pub trait TransmuteState<const SIZE: usize, const ALIGN: usize>:
+pub trait Isomorphic<const SIZE: usize, const ALIGN: usize>:
     WithState + Sized
 {
     /// Bit-reinterprets `self` as the same container type with the
@@ -177,6 +177,6 @@ pub trait TransmuteState<const SIZE: usize, const ALIGN: usize>:
 }
 
 impl<T: WithState, const SIZE: usize, const ALIGN: usize>
-    TransmuteState<SIZE, ALIGN> for T
+    Isomorphic<SIZE, ALIGN> for T
 {
 }

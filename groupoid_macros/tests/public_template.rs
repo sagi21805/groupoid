@@ -1,9 +1,9 @@
-//! A `pub` blueprint trait exposes its marker trait and group structs.
+//! A `pub` template trait exposes its marker trait and group structs.
 
 mod states {
-    use groupoid_macros::{blueprint, group, state};
+    use groupoid_macros::{group, state, template};
 
-    #[blueprint]
+    #[template]
     pub trait Meta {
         type Value;
     }
@@ -18,7 +18,7 @@ mod states {
 }
 
 #[test]
-fn group_of_public_blueprint_is_public() {
+fn group_of_public_template_is_public() {
     let value: <states::Small as states::Meta>::Value = 3;
     let _: states::Numbers = states::Numbers;
     assert_eq!(value, 3);

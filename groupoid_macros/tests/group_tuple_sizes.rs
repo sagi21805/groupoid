@@ -1,6 +1,6 @@
-use groupoid_macros::{blueprint, group, state};
+use groupoid_macros::{group, state, template};
 
-#[blueprint]
+#[template]
 trait Metadata {
     type Meta;
 

@@ -2,9 +2,9 @@
 // anything else fails to parse and is reported as a macro-authored
 // compile_error! rather than reaching the generated size assertion.
 #![allow(dead_code)]
-use groupoid_macros::{blueprint, group, state};
+use groupoid_macros::{group, state, template};
 
-#[blueprint]
+#[template]
 trait Testing {
     type Meta;
 }

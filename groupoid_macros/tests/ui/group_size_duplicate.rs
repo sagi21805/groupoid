@@ -2,9 +2,9 @@
 // type inside a #[group] impl is rejected at macro-expansion time, rather
 // than silently emitting two conflicting `SizedGroup<N>` impls.
 #![allow(dead_code)]
-use groupoid_macros::{blueprint, group, state};
+use groupoid_macros::{group, state, template};
 
-#[blueprint]
+#[template]
 trait Testing {
     type Meta;
 }

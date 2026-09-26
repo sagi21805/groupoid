@@ -1,8 +1,8 @@
-// Projecting two associated types makes `restate_with`'s `f` ambiguous.
+// Projecting two associated types makes `morph_with`'s `f` ambiguous.
 #![allow(dead_code)]
-use groupoid_macros::{blueprint, typestate};
+use groupoid_macros::{template, typestate};
 
-#[blueprint]
+#[template]
 trait Meta {
     type Value;
 }

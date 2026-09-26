@@ -1,8 +1,8 @@
 // `SizedWithState<N>` exists only for the group's `#[size(N)]`.
 #![allow(dead_code)]
-use groupoid_macros::{blueprint, group, state, typestate};
+use groupoid_macros::{group, state, template, typestate};
 
-#[blueprint]
+#[template]
 trait Meta {
     type Value;
 }

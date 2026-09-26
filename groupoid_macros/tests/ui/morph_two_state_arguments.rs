@@ -1,8 +1,8 @@
 // A layer with two different arguments that mention the state has no one
-// inner type to restate, so `#[typestate]` rejects the field.
-use groupoid_macros::{blueprint, group, state, typestate};
+// inner type to morph, so `#[typestate]` rejects the field.
+use groupoid_macros::{group, state, template, typestate};
 
-#[blueprint]
+#[template]
 trait Meta {
     type Value;
 }
@@ -29,5 +29,5 @@ struct Wrap<S: Meta> {
 
 fn main() {
     let small = Wrap::<Small> { value: Ok(1) };
-    let _big: Wrap<Big> = small.restate_with(|v| v as i32);
+    let _big: Wrap<Big> = small.morph_with(|v| v as i32);
 }

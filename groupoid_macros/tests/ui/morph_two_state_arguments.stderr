@@ -1,0 +1,5 @@
+error: give this wrapper one generic argument that mentions `S`, such as a local `Wrapper<S::Assoc>` that implements `groupoid::Morph`
+  --> tests/ui/morph_two_state_arguments.rs:27:12
+   |
+27 |     value: Result<S::Value, [S::Value; 2]>,
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

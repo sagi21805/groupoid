@@ -2,9 +2,9 @@
 // `#[size(N)]` and nothing else - any other attribute is rejected rather
 // than silently passed through.
 #![allow(dead_code)]
-use groupoid_macros::{blueprint, group, state};
+use groupoid_macros::{group, state, template};
 
-#[blueprint]
+#[template]
 trait Testing {
     type Meta;
 }

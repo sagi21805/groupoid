@@ -1,16 +1,16 @@
-error: make this field `S::Assoc`, a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `restate_with`
+error: make this field `S::Assoc`, a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `morph_with`
   --> tests/ui/typestate_disqualifying_field_shapes.rs:22:13
    |
 22 |     values: [S::Value; 2],
    |             ^^^^^^^^^^^^^
 
-error: make this field `S::Assoc`, a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `restate_with`
+error: make this field `S::Assoc`, a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `morph_with`
   --> tests/ui/typestate_disqualifying_field_shapes.rs:28:13
    |
 28 |     marker: S,
    |             ^
 
-error: make this field `S::Assoc`, a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `restate_with`
+error: make this field `S::Assoc`, a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `morph_with`
   --> tests/ui/typestate_disqualifying_field_shapes.rs:33:12
    |
 33 |     value: <S as Meta>::Value,

@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
-use groupoid_macros::{blueprint, group, state};
+use groupoid_macros::{group, state, template};
 
-#[blueprint]
+#[template]
 trait Testing {
     type Meta;
 
@@ -24,6 +24,6 @@ impl Testing for (StateA,) {
 }
 
 #[test]
-fn group_implements_blueprint_methods() {
+fn group_implements_template_methods() {
     assert_eq!(StateA::some_function(), 7);
 }

@@ -11,7 +11,7 @@ pub struct GroupTrait<'ast> {
     args: &'ast GroupTraitArgs,
     item_trait: &'ast ItemTrait,
     marker_trait: TypePath,
-    /// `<T::State as Blueprint>::Marker`
+    /// `<T::State as Template>::Marker`
     marker: TokenStream,
     helper_ident: Ident,
     helper_mod_ident: Ident,
@@ -27,13 +27,13 @@ impl<'ast> GroupTrait<'ast> {
             last.ident = crate::naming::group_marker_ident(&last.ident);
         }
 
-        let blueprint = &args.ty;
+        let template = &args.ty;
 
         GroupTrait {
             args,
             item_trait,
             marker_trait,
-            marker: quote!(<T::State as #blueprint>::Marker),
+            marker: quote!(<T::State as #template>::Marker),
             helper_ident: crate::naming::helper_trait_ident(
                 &item_trait.ident,
             ),
@@ -101,7 +101,7 @@ impl<'ast> GroupTrait<'ast> {
             })
             .collect::<syn::Result<Vec<_>>>()?;
 
-        let blueprint = &self.args.ty;
+        let template = &self.args.ty;
 
         Ok(quote! {
             #(#attrs)*
@@ -122,7 +122,7 @@ impl<'ast> GroupTrait<'ast> {
             impl<T> #trait_ident for T
             where
                 T: ::groupoid::WithState,
-                T::State: #blueprint,
+                T::State: #template,
                 T: #helper_mod_ident::#helper_ident<#marker>,
             {
                 #(#delegations)*
@@ -151,7 +151,7 @@ impl<'ast> GroupTrait<'ast> {
     }
 }
 
-/// `#[group_trait]`'s arguments: `by = <Blueprint>`.
+/// `#[group_trait]`'s arguments: `by = <Template>`.
 pub struct GroupTraitArgs {
     ty: TypePath,
 }

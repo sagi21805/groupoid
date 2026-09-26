@@ -2,21 +2,21 @@ use proc_macro::TokenStream;
 use syn::{Ident, ItemImpl, ItemStruct, ItemTrait, parse_macro_input};
 
 use crate::{
-    blueprint::Blueprint,
     group::Group,
     group_impl::GroupImpl,
     group_trait::{GroupTrait, GroupTraitArgs},
     state::State,
+    template::Template,
     typestate::{TypeState, TypeStateArgs},
 };
 
-mod blueprint;
 mod group;
 mod group_impl;
 mod group_trait;
 mod naming;
 mod state;
 mod syn_ext;
+mod template;
 mod typestate;
 
 /// Declares a trait whose one associated type groups states.
@@ -25,9 +25,9 @@ mod typestate;
 /// `#[group]` fills in.
 ///
 /// ```
-/// use groupoid::{blueprint, group, state};
+/// use groupoid::{group, state, template};
 ///
-/// #[blueprint]
+/// #[template]
 /// trait Meta {
 ///     type Value;
 /// }
@@ -42,16 +42,16 @@ mod typestate;
 /// # fn main() {}
 /// ```
 #[proc_macro_attribute]
-pub fn blueprint(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn template(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let item_trait = parse_macro_input!(item as ItemTrait);
 
-    Blueprint::new(&item_trait)
+    Template::new(&item_trait)
         .create_group_marker()
         .unwrap_or_else(|err| err.into_compile_error())
         .into()
 }
 
-/// Implements a `#[blueprint]` trait for every state in the tuple, and
+/// Implements a `#[template]` trait for every state in the tuple, and
 /// declares the named group they belong to.
 ///
 /// `#[size(N)]` on the associated type asserts its size and lets
@@ -59,9 +59,9 @@ pub fn blueprint(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// group's states.
 ///
 /// ```
-/// use groupoid::{blueprint, group, state};
+/// use groupoid::{group, state, template};
 ///
-/// #[blueprint]
+/// #[template]
 /// trait Meta {
 ///     type Value;
 /// }
@@ -106,14 +106,14 @@ pub fn group_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Marks a generic struct as a typestate container.
 ///
-/// Implements `WithState`, and `restate_with` when a field projects
+/// Implements `WithState`, and `morph_with` when a field projects
 /// through the state. `unsafe_transmute = true` also implements
 /// `TransmutableState`, and `align = N` forces the alignment it uses.
 ///
 /// ```
-/// use groupoid::{blueprint, group, state, typestate};
+/// use groupoid::{group, state, template, typestate};
 ///
-/// #[blueprint]
+/// #[template]
 /// trait Meta {
 ///     type Value;
 /// }
@@ -140,7 +140,7 @@ pub fn group_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// fn main() {
 ///     let small = Wrap::<Small> { value: 7 };
-///     let big: Wrap<Big> = small.restate_with(u64::from);
+///     let big: Wrap<Big> = small.morph_with(u64::from);
 ///     assert_eq!(big.value, 7);
 /// }
 /// ```
@@ -176,10 +176,10 @@ pub fn state(_attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// ```
 /// use groupoid::{
-///     blueprint, group, group_impl, group_trait, state, typestate,
+///     group, group_impl, group_trait, state, template, typestate,
 /// };
 ///
-/// #[blueprint]
+/// #[template]
 /// trait Meta {
 ///     type Value;
 /// }

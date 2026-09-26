@@ -1,8 +1,8 @@
 // `#[size(N)]` fails to compile when the type is not N bytes.
 #![allow(dead_code)]
-use groupoid_macros::{blueprint, group, state};
+use groupoid_macros::{group, state, template};
 
-#[blueprint]
+#[template]
 trait Testing {
     type Meta;
 }

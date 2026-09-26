@@ -60,7 +60,7 @@ impl<'ast> Group<'ast> {
                 syn::Error::new_spanned(
                     self.inner_impl,
                     "use `#[group]` on a trait impl, such as `impl \
-                     Blueprint for (StateA, StateB)`",
+                     Template for (StateA, StateB)`",
                 )
             })?;
 

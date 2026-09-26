@@ -1,9 +1,9 @@
-// A wrapper without a `Restate` impl fails where `restate_with` is
+// A wrapper without a `Morph` impl fails where `morph_with` is
 // called.
 #![allow(dead_code)]
-use groupoid_macros::{blueprint, group, state, typestate};
+use groupoid_macros::{group, state, template, typestate};
 
-#[blueprint]
+#[template]
 trait Meta {
     type Value;
 }
@@ -34,5 +34,5 @@ struct Wrap<S: Meta> {
 
 fn main() {
     let small = Wrap::<Small> { user: Pair(1, 2) };
-    let _big: Wrap<Big> = small.restate_with(|v| v as i32);
+    let _big: Wrap<Big> = small.morph_with(|v| v as i32);
 }

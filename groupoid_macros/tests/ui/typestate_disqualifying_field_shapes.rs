@@ -1,9 +1,9 @@
 // Fields that mention the state without being a bare `S::Assoc` reject
 // `unsafe_transmute = true`.
 #![allow(dead_code)]
-use groupoid_macros::{blueprint, group, state, typestate};
+use groupoid_macros::{group, state, template, typestate};
 
-#[blueprint]
+#[template]
 trait Meta {
     type Value;
 }

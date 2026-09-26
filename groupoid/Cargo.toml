@@ -12,11 +12,11 @@ readme = "../README.md"
 
 [features]
 default = ["std"]
-# `Restate` impls for `core` types.
+# `Morph` impls for `core` types.
 core = []
-# `Restate` impls for `alloc` collections and `Box`.
+# `Morph` impls for `alloc` collections and `Box`.
 alloc = ["core"]
-# `Restate` impls for `HashMap` and `HashSet`.
+# `Morph` impls for `HashMap` and `HashSet`.
 std = ["alloc"]
 
 [dependencies]

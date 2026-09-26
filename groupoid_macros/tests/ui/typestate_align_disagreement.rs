@@ -1,10 +1,10 @@
 // States of equal size but different alignment don't transmute without
 // `align = N`.
 #![allow(dead_code)]
-use groupoid::TransmuteState;
-use groupoid_macros::{blueprint, group, state, typestate};
+use groupoid::Isomorphic;
+use groupoid_macros::{group, state, template, typestate};
 
-#[blueprint]
+#[template]
 trait Meta {
     type Value;
 }

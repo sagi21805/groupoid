@@ -2,9 +2,9 @@
 // its group name was ever produced by #[group]. Referencing a name that was
 // never declared surfaces as a plain "cannot find type" error from rustc.
 #![allow(dead_code)]
-use groupoid_macros::{blueprint, group, group_impl, group_trait, state, typestate};
+use groupoid_macros::{group, group_impl, group_trait, state, template, typestate};
 
-#[blueprint]
+#[template]
 trait Testing {
     type Meta;
 }
