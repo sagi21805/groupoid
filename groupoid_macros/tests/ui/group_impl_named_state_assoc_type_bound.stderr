@@ -1,0 +1,5 @@
+error: remove `Value = String`: `#[group_impl(Numbers)]` already sets `Value` to the type `Numbers` declares
+  --> tests/ui/group_impl_named_state_assoc_type_bound.rs:31:39
+   |
+31 | impl<I: Iterator<Item = u32>, S: Meta<Value = String>> Describe
+   |                                       ^^^^^^^^^^^^^^

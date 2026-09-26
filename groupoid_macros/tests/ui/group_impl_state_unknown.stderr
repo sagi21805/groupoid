@@ -1,0 +1,5 @@
+error: set `state` to one of the impl's generic type parameters
+  --> tests/ui/group_impl_state_unknown.rs:29:31
+   |
+29 | #[group_impl(Numbers, state = T)]
+   |                               ^

@@ -12,6 +12,94 @@ type (for example, every state whose value is a `usize`), and a different implem
 for states that share another type (for example `String`) — while the typestate pattern
 keeps each state's transitions type-safe and explicit.
 
+## Example
+
+An order moves through four states. While it's open, it holds item
+prices. Once it's paid, it holds a receipt. You want one `total()` that
+works in every state.
+
+In plain Rust you'd reach for two impls:
+
+```rust,ignore
+impl<S: Stage<Contents = Vec<u32>>> Order<S> { fn total(&self) -> u32 { .. } }
+impl<S: Stage<Contents = Receipt>> Order<S> { fn total(&self) -> u32 { .. } }
+```
+
+rustc rejects this with `E0592: duplicate definitions`, because it can't
+tell that no state satisfies both bounds. So you end up with one impl per
+state, or an enum and a runtime `match`. With `groupoid`, you name the
+groups and write one impl for each:
+
+```rust
+use groupoid::{group, group_impl, group_trait, state, template, typestate};
+
+struct Receipt {
+    charged: u32,
+}
+
+#[template]
+trait Stage {
+    type Contents;
+}
+
+#[state]
+struct Cart;
+#[state]
+struct Checkout;
+#[state]
+struct Paid;
+#[state]
+struct Shipped;
+
+#[group(Open)]
+impl Stage for (Cart, Checkout) {
+    type Contents = Vec<u32>;
+}
+
+#[group(Closed)]
+impl Stage for (Paid, Shipped) {
+    type Contents = Receipt;
+}
+
+#[typestate]
+struct Order<S: Stage> {
+    contents: S::Contents,
+}
+
+#[group_trait(by = Stage)]
+trait Total {
+    fn total(&self) -> u32;
+}
+
+#[group_impl(Open)]
+impl<S: Stage> Total for Order<S> {
+    fn total(&self) -> u32 {
+        self.contents.iter().sum()
+    }
+}
+
+#[group_impl(Closed)]
+impl<S: Stage> Total for Order<S> {
+    fn total(&self) -> u32 {
+        self.contents.charged
+    }
+}
+
+fn main() {
+    let checkout = Order::<Checkout> { contents: vec![1200, 300] };
+    assert_eq!(checkout.total(), 1500);
+
+    let paid: Order<Paid> = checkout.morph_with(|prices| Receipt {
+        charged: prices.iter().sum(),
+    });
+    assert_eq!(paid.total(), 1500);
+}
+```
+
+Each impl sees the concrete field type, so `self.contents.iter()` needs
+no cast. A new state joins a group by being added to its tuple, and it
+gets `total()` without another line of code.
+
 ## Crates
 
 - [`groupoid`](groupoid) — the public API.

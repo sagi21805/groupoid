@@ -3,7 +3,7 @@ use syn::{Ident, ItemImpl, ItemStruct, ItemTrait, parse_macro_input};
 
 use crate::{
     group::Group,
-    group_impl::GroupImpl,
+    group_impl::{GroupImpl, GroupImplArgs},
     group_trait::{GroupTrait, GroupTraitArgs},
     state::State,
     template::Template,
@@ -92,14 +92,18 @@ pub fn group(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Implements a `#[group_trait]` trait for the types whose state is in
 /// the named group.
 ///
+/// The impl's only generic type parameter is the state; with several,
+/// name it with `#[group_impl(Group, state = S)]`. The group sets the
+/// state's associated type, so bound the state by the template alone.
+///
 /// See [`macro@group_trait`] for an example.
 #[proc_macro_attribute]
 pub fn group_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item_impl = parse_macro_input!(item as ItemImpl);
-    let name = parse_macro_input!(attr as Ident);
+    let args = parse_macro_input!(attr as GroupImplArgs);
 
-    GroupImpl::new(&item_impl, &name)
-        .create_group_impl()
+    GroupImpl::new(&args, &item_impl)
+        .and_then(|group_impl| group_impl.create_group_impl())
         .unwrap_or_else(|err| err.into_compile_error())
         .into()
 }
@@ -210,14 +214,14 @@ pub fn state(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 ///
 /// #[group_impl(Numbers)]
-/// impl<S: Meta<Value = u32>> Describe for Wrap<S> {
+/// impl<S: Meta> Describe for Wrap<S> {
 ///     fn describe(&self) -> String {
 ///         format!("number {}", self.value)
 ///     }
 /// }
 ///
 /// #[group_impl(Words)]
-/// impl<S: Meta<Value = String>> Describe for Wrap<S> {
+/// impl<S: Meta> Describe for Wrap<S> {
 ///     fn describe(&self) -> String {
 ///         format!("word {}", self.value)
 ///     }

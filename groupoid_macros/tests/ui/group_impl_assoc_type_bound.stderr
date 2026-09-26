@@ -1,0 +1,5 @@
+error: remove `Value = String`: `#[group_impl(Numbers)]` already sets `Value` to the type `Numbers` declares
+  --> tests/ui/group_impl_assoc_type_bound.rs:30:14
+   |
+30 | impl<S: Meta<Value = String>> Describe for Wrap<S> {
+   |              ^^^^^^^^^^^^^^

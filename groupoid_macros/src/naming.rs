@@ -6,6 +6,23 @@ pub fn group_marker_ident(trait_ident: &Ident) -> Ident {
     format_ident!("{}GroupMarker", trait_ident)
 }
 
+/// The trait `#[template]` generates that pins a state's associated type
+/// to its group's, e.g. `A` -> `AGroupMember`.
+pub fn group_member_ident(trait_ident: &Ident) -> Ident {
+    format_ident!("{}GroupMember", trait_ident)
+}
+
+/// The group parameter of the `{Trait}GroupMember` trait.
+pub fn group_param_ident() -> Ident {
+    format_ident!("__GroupoidGroup")
+}
+
+/// The alias of the template's `{Trait}GroupMember` trait inside a
+/// `#[group_trait]` helper module.
+pub fn helper_member_ident() -> Ident {
+    format_ident!("Member")
+}
+
 /// The helper trait's own identifier, e.g. `A` -> `AHelper`.
 pub fn helper_trait_ident(trait_ident: &Ident) -> Ident {
     format_ident!("{}Helper", trait_ident)
