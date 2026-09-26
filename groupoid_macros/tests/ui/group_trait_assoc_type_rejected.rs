@@ -1,5 +1,5 @@
-// An associated type on a `#[group_trait]` trait can't be satisfied by
-// the blanket impl.
+// `#[group_trait]` rejects an associated type, which the blanket impl
+// couldn't define.
 #![allow(dead_code)]
 use groupoid_macros::{blueprint, group_trait};
 

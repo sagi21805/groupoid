@@ -1,11 +1,5 @@
-error[E0271]: type mismatch resolving `<Big as Meta>::Value == u32`
-  --> tests/ui/restate_two_state_arguments.rs:32:27
+error: give this wrapper one generic argument that mentions `S`, such as a local `Wrapper<S::Assoc>` that implements `groupoid::Restate`
+  --> tests/ui/restate_two_state_arguments.rs:27:12
    |
-32 |     let _big: Wrap<Big> = small.restate_with(|v| v as i32);
-   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ type mismatch resolving `<Big as Meta>::Value == u32`
-   |
-note: expected this to be `u32`
-  --> tests/ui/restate_two_state_arguments.rs:22:18
-   |
-22 |     type Value = i32;
-   |                  ^^^
+27 |     value: Result<S::Value, [S::Value; 2]>,
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

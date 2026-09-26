@@ -1,4 +1,4 @@
-error: only `#[size(N)]` is allowed on associated type `Meta` inside `#[group]`
+error: remove this attribute: `#[group]` allows only `#[size(N)]` on associated type `Meta`
   --> tests/ui/group_type_non_size_attribute.rs:17:5
    |
 17 |     #[allow(dead_code)]

@@ -1,4 +1,4 @@
-error: `#[typestate]` cannot generate `restate_with` for a struct that projects both `S::Value` and `S::Marker`: the conversion `f` would be ambiguous
+error: project every field through the same associated type of `S`, not both `S::Value` and `S::Marker`
   --> tests/ui/restate_ambiguous_projection.rs:13:16
    |
 13 |     marker: S::Marker,

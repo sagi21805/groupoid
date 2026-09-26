@@ -28,7 +28,8 @@ impl<'ast> GroupImpl<'ast> {
             modified.trait_.as_mut().ok_or_else(|| {
                 syn::Error::new_spanned(
                     self.inner_impl,
-                    "Expected trait impl block, found regular.",
+                    "use `#[group_impl]` on a trait impl, such as `impl \
+                     Trait for Wrap<S>`",
                 )
             })?;
 

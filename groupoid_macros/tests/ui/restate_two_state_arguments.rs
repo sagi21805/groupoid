@@ -1,5 +1,5 @@
 // A layer with two different arguments that mention the state has no one
-// inner type to restate, so the call site needs a whole-type impl.
+// inner type to restate, so `#[typestate]` rejects the field.
 use groupoid_macros::{blueprint, group, state, typestate};
 
 #[blueprint]

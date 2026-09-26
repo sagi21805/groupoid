@@ -3,7 +3,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{
     FnArg, Ident, ItemTrait, Pat, PatIdent, PatType, Signature, Token,
-    TraitItem, TraitItemFn, TypePath,
+    TraitItem, TraitItemConst, TraitItemFn, TypePath,
     parse::{Parse, ParseStream},
 };
 
@@ -43,7 +43,8 @@ impl<'ast> GroupTrait<'ast> {
         }
     }
 
-    /// The trait, its hidden helper trait, and a blanket impl that
+    /// The trait, its hidden helper trait with the default bodies, and a
+    /// blanket impl that
     /// forwards every method to the helper impl of the state's group.
     pub fn generate_group_trait(&self) -> syn::Result<TokenStream> {
         let GroupTrait {
@@ -69,20 +70,28 @@ impl<'ast> GroupTrait<'ast> {
         if !generics.params.is_empty() {
             return Err(syn::Error::new_spanned(
                 generics,
-                "#[group_trait] does not currently support generic \
-                 parameters on the trait itself",
+                "remove the generic parameters: `#[group_trait]` doesn't \
+                 support them yet",
             ));
         }
 
-        let declarations: Vec<TokenStream> = items
+        let declarations = items
             .iter()
             .map(|item| match item {
                 TraitItem::Fn(TraitItemFn { attrs, sig, .. }) => {
-                    quote!(#(#attrs)* #sig;)
+                    Ok(quote!(#(#attrs)* #sig;))
                 }
-                other => quote!(#other),
+                TraitItem::Type(_)
+                | TraitItem::Const(TraitItemConst {
+                    default: None, ..
+                }) => Err(syn::Error::new_spanned(
+                    item,
+                    "remove this item: a `#[group_trait]` trait can hold \
+                     only methods and constants with a value",
+                )),
+                other => Ok(quote!(#other)),
             })
-            .collect();
+            .collect::<syn::Result<Vec<_>>>()?;
 
         let delegations = items
             .iter()
@@ -106,7 +115,7 @@ impl<'ast> GroupTrait<'ast> {
 
                 #(#attrs)*
                 pub trait #helper_ident<Marker: #marker_trait> {
-                    #(#declarations)*
+                    #(#items)*
                 }
             }
 
@@ -168,7 +177,8 @@ impl Signature {
         if let Some(asyncness) = &self.asyncness {
             return Err(syn::Error::new_spanned(
                 asyncness,
-                "`async fn` is not supported by #[group_trait] yet",
+                "remove `async`: `#[group_trait]` doesn't support `async \
+                 fn` yet",
             ));
         }
 
@@ -176,8 +186,8 @@ impl Signature {
             return Err(syn::Error::new_spanned(
                 self,
                 format!(
-                    "method `{}` must take `self`: #[group_trait] \
-                     requires every method to have a receiver",
+                    "add a `self` receiver to `{}`: every \
+                     `#[group_trait]` method needs one",
                     self.ident
                 ),
             ));
@@ -195,9 +205,9 @@ impl Signature {
                     other => Err(syn::Error::new_spanned(
                         other,
                         format!(
-                            "argument {index} of `{}` must be a simple \
-                             identifier for #[group_trait] to forward it \
-                             automatically",
+                            "bind argument {index} of `{}` to a plain \
+                             name, such as `value: T`: `#[group_trait]` \
+                             forwards arguments by name",
                             self.ident
                         ),
                     )),

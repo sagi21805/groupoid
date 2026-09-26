@@ -36,8 +36,9 @@ pub(crate) struct TypeState {
 }
 
 impl TypeState {
-    /// Resolves the state parameter, bounds it by `::groupoid::State`, and
-    /// checks the struct's layout when transmute is on.
+    /// Resolves the state parameter, bounds it by `::groupoid::State`,
+    /// checks that `restate_with` can peel every field, and checks the
+    /// struct's layout when transmute is on.
     pub(crate) fn new(
         args: TypeStateArgs,
         mut item_struct: ItemStruct,
@@ -53,6 +54,9 @@ impl TypeState {
         let target_ty =
             item_struct.with_state(&state, &target_state.ident);
         let projection = item_struct.unique_projection(&state)?;
+        if projection.is_some() {
+            item_struct.require_single_state_args(&state)?;
+        }
 
         if let Transmute::On(align) = &args.transmute {
             item_struct.require_transmutable_layout(&state)?;
@@ -60,8 +64,8 @@ impl TypeState {
                 return Err(syn::Error::new_spanned(
                     &item_struct.ident,
                     format!(
-                        "`unsafe_transmute = true` needs at least one \
-                         field to be a bare `{state}::Assoc` projection",
+                        "add a field of type `{state}::Assoc`, or remove \
+                         `unsafe_transmute = true`",
                     ),
                 ));
             }
@@ -79,22 +83,6 @@ impl TypeState {
     }
 
     /// The struct followed by every impl `#[typestate]` derives for it.
-    ///
-    /// ```text
-    /// #[typestate(unsafe_transmute = true)]
-    /// struct Wrap<S> { value: S::Value }
-    /// ```
-    /// expands to
-    /// ```text
-    /// #[repr(C)]
-    /// struct Wrap<S: ::groupoid::State> { value: S::Value }
-    /// impl<S: ::groupoid::State> ::groupoid::WithState for Wrap<S> { type State = S; }
-    /// impl<..> ::groupoid::SizedWithState<__GROUPOID_SIZE, __GROUPOID_ALIGN> for Wrap<S> where .. {}
-    /// unsafe impl<..> ::groupoid::TransmutableState<__GroupoidTargetState, ..> for Wrap<S> where .. {
-    ///     type Target = Wrap<__GroupoidTargetState>;
-    /// }
-    /// impl<S: ::groupoid::State> Wrap<S> { pub fn restate_with<..>(self, ..) -> .. { .. } }
-    /// ```
     pub(crate) fn generate_typestate_impls(&self) -> TokenStream {
         let item_struct = &self.item_struct;
         let with_state_impl = self.with_state_impl();
@@ -333,7 +321,7 @@ impl Parse for TypeStateArgs {
             } else if let Alignment::Forced(n) = align {
                 return Err(syn::Error::new(
                     n.span(),
-                    "`align` requires `unsafe_transmute = true`",
+                    "add `unsafe_transmute = true` to use `align`",
                 ));
             } else {
                 Transmute::Off
@@ -371,8 +359,8 @@ impl ItemStruct {
         match state {
             Some(state) => {
                 let msg = format!(
-                    "`{state}` must be one of the generic type \
-                     parameters of `{}`",
+                    "set `state` to one of the generic type parameters \
+                     of `{}`",
                     self.ident
                 );
                 self.generics
@@ -393,8 +381,9 @@ impl ItemStruct {
             .ok_or_else(|| {
                 syn::Error::new_spanned(
                     &self.ident,
-                    "`#[typestate]` needs `state = <Ident>` unless the \
-                     struct has exactly one generic type parameter",
+                    "add `state = <Ident>` to `#[typestate]` to name the \
+                     state parameter; only a struct with one generic \
+                     type parameter can leave it out",
                 )
             })
     }
@@ -417,15 +406,34 @@ impl ItemStruct {
             return Err(syn::Error::new(
                 found.span(),
                 format!(
-                    "`#[typestate]` cannot generate `restate_with` for a \
-                     struct that projects both `{state}::{first}` and \
-                     `{state}::{found}`: the conversion `f` would be \
-                     ambiguous"
+                    "project every field through the same associated \
+                     type of `{state}`, not both `{state}::{first}` and \
+                     `{state}::{found}`"
                 ),
             ));
         }
 
         Ok(Some(first))
+    }
+
+    /// Checks that every wrapper `restate_with` peels has one generic
+    /// argument to restate.
+    fn require_single_state_args(&self, state: &Ident) -> syn::Result<()> {
+        for field in self.fields.iter() {
+            if let Some(layer) = field.ty.ambiguous_layer(state) {
+                return Err(syn::Error::new_spanned(
+                    layer,
+                    format!(
+                        "give this wrapper one generic argument that \
+                         mentions `{state}`, such as a local \
+                         `Wrapper<{state}::Assoc>` that implements \
+                         `groupoid::Restate`"
+                    ),
+                ));
+            }
+        }
+
+        Ok(())
     }
 
     /// Checks that every field's layout can be pinned across states.
@@ -438,10 +446,10 @@ impl ItemStruct {
                 return Err(syn::Error::new_spanned(
                     &field.ty,
                     format!(
-                        "`unsafe_transmute = true` needs every field to \
-                         be a bare `{state}::Assoc` projection, a ZST, \
-                         or independent of `{state}`; use `restate_with` \
-                         for fields that wrap the state"
+                        "make this field `{state}::Assoc`, a ZST or a \
+                         type without `{state}`, or remove \
+                         `unsafe_transmute = true` and convert with \
+                         `restate_with`"
                     ),
                 ));
             }
@@ -466,10 +474,8 @@ impl ItemStruct {
             {
                 return Err(syn::Error::new_spanned(
                     first,
-                    "`unsafe_transmute = true` derives \
-                     `TransmutableState` for this struct, which needs a \
-                     guaranteed field layout; add `C` to its \
-                     `#[repr(..)]`",
+                    "add `C` to this `#[repr(..)]`: `unsafe_transmute = \
+                     true` needs a guaranteed field layout",
                 ));
             }
             _ => {}
@@ -648,27 +654,62 @@ impl Type {
     ///
     /// `Option<[S::Value; 2]> -> [S::Value; 2]`
     fn restate_inner(&self, state: &Ident) -> Option<&Type> {
-        let path = match self.peeled() {
-            Type::Array(array) => return Some(&array.elem),
-            Type::Path(TypePath {
-                qself: None, path, ..
-            }) => path,
-            _ => return None,
-        };
-        let PathArguments::AngleBracketed(args) =
-            &path.segments.last()?.arguments
+        if let Type::Array(array) = self.peeled() {
+            return Some(&array.elem);
+        }
+
+        match self.state_args(state).as_slice() {
+            [inner] => Some(inner),
+            _ => None,
+        }
+    }
+
+    /// The distinct generic arguments of this path type that mention the
+    /// state.
+    ///
+    /// `Result<S::Value, [S::Value; 2]> -> [S::Value, [S::Value; 2]]`
+    fn state_args(&self, state: &Ident) -> Vec<&Type> {
+        let Type::Path(TypePath {
+            qself: None, path, ..
+        }) = self.peeled()
         else {
-            return None;
+            return Vec::new();
+        };
+        let Some(PathArguments::AngleBracketed(args)) =
+            path.segments.last().map(|segment| &segment.arguments)
+        else {
+            return Vec::new();
         };
 
-        let mut inners = args.args.iter().filter_map(|arg| {
+        let mut found = Vec::new();
+        for arg in &args.args {
             let GenericArgument::Type(ty) = arg else {
-                return None;
+                continue;
             };
-            ty.mentions_ident(state).then_some(ty)
-        });
-        let first = inners.next()?;
-        inners.all(|ty| ty == first).then_some(first)
+            if ty.mentions_ident(state) && !found.contains(&ty) {
+                found.push(ty);
+            }
+        }
+        found
+    }
+
+    /// The first layer `restate_with` would reach that has several
+    /// different generic arguments mentioning the state.
+    ///
+    /// `Option<Result<S::Value, [S::Value; 2]>> -> Result<..>`
+    fn ambiguous_layer(&self, state: &Ident) -> Option<&Type> {
+        match self.restate_shape(state) {
+            RestateShape::Unchanged
+            | RestateShape::Direct
+            | RestateShape::Zst(_) => None,
+            RestateShape::Tuple(tuple) => {
+                tuple.elems.iter().find_map(|ty| ty.ambiguous_layer(state))
+            }
+            RestateShape::Wrapped(inner) => inner.ambiguous_layer(state),
+            RestateShape::Opaque => {
+                (self.state_args(state).len() > 1).then_some(self)
+            }
+        }
     }
 
     /// A `Restate<src, dst>` call on `expr` with the closure `convert`,

@@ -1,4 +1,4 @@
-error[E0277]: the trait bound `SmallGroup: SizedGroup<8>` is not satisfied
+error[E0277]: add `#[size(8)]` to the associated type in `#[group(SmallGroup)]`
   --> tests/ui/typestate_sized_with_state_size_mismatch.rs:28:31
    |
 28 |     assert_sized_with_state::<Wrap<Small>, 8, 1>();

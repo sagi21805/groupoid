@@ -41,6 +41,10 @@ trait a_b {
     fn tagged(&self) -> &'static str {
         "default_tag"
     }
+
+    fn doubled(&self, x: i32) -> i32 {
+        self.sum_three(x, x, 0)
+    }
 }
 
 #[group_impl(GroupOne)]
@@ -63,10 +67,6 @@ impl<S: Testing + groupoid::State> a_b for Widget<S> {
     fn sum_three(&self, x: i32, y: i32, z: i32) -> i32 {
         x * y * z
     }
-
-    fn tagged(&self) -> &'static str {
-        "group_two"
-    }
 }
 
 #[test]
@@ -78,11 +78,19 @@ fn forwards_multiple_positional_args_and_dispatches_correctly() {
 }
 
 #[test]
-fn default_bodied_method_must_be_reimplemented_by_each_group_impl() {
+fn default_bodied_method_is_overridable_or_inherited() {
     let a = Widget::<StateA> { meta: 1 };
     let b = Widget::<StateB> { meta: 1 };
     assert_eq!(a.tagged(), "group_one");
-    assert_eq!(b.tagged(), "group_two");
+    assert_eq!(b.tagged(), "default_tag");
+}
+
+#[test]
+fn default_body_calls_the_group_impl() {
+    let a = Widget::<StateA> { meta: 1 };
+    let b = Widget::<StateB> { meta: 1 };
+    assert_eq!(a.doubled(3), 6);
+    assert_eq!(b.doubled(3), 0);
 }
 
 #[test]

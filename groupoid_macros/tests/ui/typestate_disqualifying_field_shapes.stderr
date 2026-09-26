@@ -1,16 +1,16 @@
-error: `unsafe_transmute = true` needs every field to be a bare `S::Assoc` projection, a ZST, or independent of `S`; use `restate_with` for fields that wrap the state
+error: make this field `S::Assoc`, a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `restate_with`
   --> tests/ui/typestate_disqualifying_field_shapes.rs:22:13
    |
 22 |     values: [S::Value; 2],
    |             ^^^^^^^^^^^^^
 
-error: `unsafe_transmute = true` needs every field to be a bare `S::Assoc` projection, a ZST, or independent of `S`; use `restate_with` for fields that wrap the state
+error: make this field `S::Assoc`, a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `restate_with`
   --> tests/ui/typestate_disqualifying_field_shapes.rs:28:13
    |
 28 |     marker: S,
    |             ^
 
-error: `unsafe_transmute = true` needs every field to be a bare `S::Assoc` projection, a ZST, or independent of `S`; use `restate_with` for fields that wrap the state
+error: make this field `S::Assoc`, a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `restate_with`
   --> tests/ui/typestate_disqualifying_field_shapes.rs:33:12
    |
 33 |     value: <S as Meta>::Value,

@@ -1,7 +1,5 @@
-error: Expected tuple for the group states, e.g. (StateA, StateB ...)
-  --> tests/ui/group_self_type_not_tuple.rs:12:1
+error: implement the trait for a tuple of states, such as `(StateA, StateB)`
+  --> tests/ui/group_self_type_not_tuple.rs:12:18
    |
-12 | / impl Testing for StateA {
-13 | |     type Meta = u8;
-14 | | }
-   | |_^
+12 | impl Testing for StateA {
+   |                  ^^^^^^

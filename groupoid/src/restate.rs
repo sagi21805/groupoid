@@ -64,10 +64,10 @@
 /// for a local projection type, such as
 /// `impl<B> Restate<MyValue, B> for Option<MyValue>`.
 #[diagnostic::on_unimplemented(
-    message = "`{Self}` is not a wrapper `#[typestate]` can restate",
-    note = "implement `groupoid::Restate<{Src}, {Dst}>` for it, or \
-            enable the `core`, `alloc` or `std` feature for built-in \
-            types"
+    message = "implement `groupoid::Restate<{Src}, {Dst}>` for `{Self}` \
+               to restate it",
+    note = "for built-in types, enable the `core`, `alloc` or `std` \
+            feature instead"
 )]
 pub trait Restate<Src, Dst> {
     /// `Self` with `Dst` in place of every `Src`.

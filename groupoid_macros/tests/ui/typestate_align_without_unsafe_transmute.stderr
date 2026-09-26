@@ -1,10 +1,10 @@
-error: `align` requires `unsafe_transmute = true`
+error: add `unsafe_transmute = true` to use `align`
   --> tests/ui/typestate_align_without_unsafe_transmute.rs:19:32
    |
 19 | #[typestate(state = S, align = 8)]
    |                                ^
 
-error: `align` requires `unsafe_transmute = true`
+error: add `unsafe_transmute = true` to use `align`
   --> tests/ui/typestate_align_without_unsafe_transmute.rs:24:58
    |
 24 | #[typestate(state = S, unsafe_transmute = false, align = 8)]

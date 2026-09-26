@@ -26,6 +26,9 @@ impl<'ast> Group<'ast> {
         let group_impls = self.sized_group_impls(&mut items)?;
 
         let items_tokens = quote! { #(#items)* };
+        let types = items
+            .iter()
+            .filter(|item| matches!(item, ImplItem::Type(_)));
         let marker_trait = crate::naming::group_marker_ident(trait_name);
         let group_name = self.group_name;
 
@@ -37,7 +40,7 @@ impl<'ast> Group<'ast> {
             #group_impls
 
             impl #marker_trait for #group_name {
-                #items_tokens
+                #(#types)*
             }
 
             #(
@@ -56,14 +59,16 @@ impl<'ast> Group<'ast> {
             self.inner_impl.trait_.as_ref().ok_or_else(|| {
                 syn::Error::new_spanned(
                     self.inner_impl,
-                    "Expected trait impl block, found regular.",
+                    "use `#[group]` on a trait impl, such as `impl \
+                     Blueprint for (StateA, StateB)`",
                 )
             })?;
 
         trait_path.get_ident().ok_or_else(|| {
             syn::Error::new_spanned(
                 trait_path,
-                "Expected trait path name to be single ident",
+                "name the trait with a single identifier, and bring it \
+                 into scope with `use`",
             )
         })
     }
@@ -74,9 +79,9 @@ impl<'ast> Group<'ast> {
     fn states(&self) -> syn::Result<Vec<&'ast Ident>> {
         let Type::Tuple(tup) = self.inner_impl.self_ty.as_ref() else {
             return Err(syn::Error::new_spanned(
-                self.inner_impl,
-                "Expected tuple for the group states, e.g. (StateA, \
-                 StateB ...)",
+                &self.inner_impl.self_ty,
+                "implement the trait for a tuple of states, such as \
+                 `(StateA, StateB)`",
             ));
         };
 
@@ -90,8 +95,8 @@ impl<'ast> Group<'ast> {
                 .ok_or_else(|| {
                     syn::Error::new_spanned(
                         e,
-                        "Expected the types inside the group tuple to be \
-                         single idents, e.g. (StateA, StateB ...)",
+                        "name each state with a single identifier, such \
+                         as `(StateA, StateB)`",
                     )
                 })
             })
@@ -149,10 +154,8 @@ impl<'a> TryFrom<&'a mut ImplItemType> for SizeAssert<'a> {
             return Err(syn::Error::new(
                 ident.span(),
                 format!(
-                    "exactly one `#[size(N)]` attribute is expected on \
-                     associated type `{ident}` inside `#[group]`, found \
-                     {} attribute(s)",
-                    impl_ty.attrs.len()
+                    "keep one attribute, `#[size(N)]`, on associated \
+                     type `{ident}` inside `#[group]`"
                 ),
             ));
         };
@@ -161,8 +164,8 @@ impl<'a> TryFrom<&'a mut ImplItemType> for SizeAssert<'a> {
             return Err(syn::Error::new_spanned(
                 attr,
                 format!(
-                    "only `#[size(N)]` is allowed on associated type \
-                     `{ident}` inside `#[group]`"
+                    "remove this attribute: `#[group]` allows only \
+                     `#[size(N)]` on associated type `{ident}`"
                 ),
             ));
         }
@@ -171,8 +174,7 @@ impl<'a> TryFrom<&'a mut ImplItemType> for SizeAssert<'a> {
 
         let ty = &impl_ty.ty;
         let msg = format!(
-            "associated type `{ident}` is `{}`, which is not {size} \
-             byte(s)",
+            "change `#[size({size})]` on `{ident}` to the size of `{}`",
             quote!(#ty),
         );
 

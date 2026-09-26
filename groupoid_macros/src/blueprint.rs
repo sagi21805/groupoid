@@ -33,8 +33,8 @@ impl<'ast> Blueprint<'ast> {
             return Err(syn::Error::new_spanned(
                 &self.inner.ident,
                 format!(
-                    "`#[blueprint]` requires exactly one associated \
-                     type, found {}",
+                    "declare exactly one associated type in a \
+                     `#[blueprint]` trait; this one has {}",
                     type_definitions.len()
                 ),
             ));

@@ -1,4 +1,4 @@
-error: #[group_trait] does not currently support generic parameters on the trait itself
+error: remove the generic parameters: `#[group_trait]` doesn't support them yet
   --> tests/ui/group_trait_generic_trait.rs:10:10
    |
 10 | trait Foo<T> {

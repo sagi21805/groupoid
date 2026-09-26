@@ -118,7 +118,7 @@ pub(crate) impl<T: Parse> Option<T> {
         if self.is_some() {
             return Err(syn::Error::new(
                 key.span(),
-                format!("duplicate `{key}` argument"),
+                format!("remove the duplicate `{key}` argument"),
             ));
         }
         input.parse::<Token![=]>()?;

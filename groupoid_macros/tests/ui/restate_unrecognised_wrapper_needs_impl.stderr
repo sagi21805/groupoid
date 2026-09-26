@@ -1,4 +1,4 @@
-error[E0277]: `Pair<u32>` is not a wrapper `#[typestate]` can restate
+error[E0277]: implement `groupoid::Restate<u32, _>` for `Pair<u32>` to restate it
   --> tests/ui/restate_unrecognised_wrapper_needs_impl.rs:37:33
    |
 37 |     let _big: Wrap<Big> = small.restate_with(|v| v as i32);
@@ -9,7 +9,7 @@ help: the trait `Restate<u32, _>` is not implemented for `Pair<u32>`
    |
 28 | struct Pair<T>(T, T);
    | ^^^^^^^^^^^^^^
-   = note: implement `groupoid::Restate<u32, _>` for it, or enable the `core`, `alloc` or `std` feature for built-in types
+   = note: for built-in types, enable the `core`, `alloc` or `std` feature instead
    = help: the following other types implement trait `Restate<Src, Dst>`:
              BTreeMap<K, A>
              BTreeSet<A>

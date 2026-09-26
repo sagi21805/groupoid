@@ -1,4 +1,4 @@
-error[E0080]: evaluation panicked: associated type `Meta` is `u64`, which is not 4 byte(s)
+error[E0080]: evaluation panicked: change `#[size(4)]` on `Meta` to the size of `u64`
   --> tests/ui/group_size_mismatch.rs:13:1
    |
 13 | #[group(G)]
