@@ -1,0 +1,5 @@
+error: add a `self` receiver to `make`: every `#[group_trait]` method needs one
+  --> tests/ui/group_trait_method_without_self.rs:11:5
+   |
+11 |     fn make() -> Self;
+   |     ^^^^^^^^^^^^^^^^^

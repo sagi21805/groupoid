@@ -1,0 +1,5 @@
+error: add a field of type `S::Assoc`, or remove `unsafe_transmute = true`
+  --> tests/ui/typestate_unsafe_transmute_no_projection.rs:10:8
+   |
+10 | struct Tagged<S> {
+   |        ^^^^^^

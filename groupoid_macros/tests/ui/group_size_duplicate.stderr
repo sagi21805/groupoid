@@ -1,0 +1,5 @@
+error: keep one attribute, `#[size(N)]`, on associated type `Meta` inside `#[group]`
+  --> tests/ui/group_size_duplicate.rs:19:10
+   |
+19 |     type Meta = u64;
+   |          ^^^^

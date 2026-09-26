@@ -1,0 +1,5 @@
+error: name each state with a single identifier, such as `(StateA, StateB)`
+  --> tests/ui/group_tuple_elem_not_path.rs:12:19
+   |
+12 | impl Testing for (&StateA,) {
+   |                   ^^^^^^^

@@ -1,0 +1,5 @@
+error: expected integer literal
+  --> tests/ui/group_size_invalid_literal.rs:17:12
+   |
+17 |     #[size("eight")]
+   |            ^^^^^^^

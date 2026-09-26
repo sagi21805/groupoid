@@ -1,0 +1,5 @@
+error: set `state` to one of the generic type parameters of `Foo`
+ --> tests/ui/typestate_ident_not_a_generic_param.rs:4:21
+  |
+4 | #[typestate(state = X)]
+  |                     ^

@@ -1,0 +1,5 @@
+error: name each state with a single identifier, such as `(StateA, StateB)`
+  --> tests/ui/group_tuple_elem_not_bare_ident.rs:13:19
+   |
+13 | impl Testing for (inner::StateA,) {
+   |                   ^^^^^^^^^^^^^

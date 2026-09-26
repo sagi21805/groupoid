@@ -1,0 +1,25 @@
+error[E0277]: add `#[size(8)]` to the associated type in `#[group(SmallGroup)]`
+  --> tests/ui/typestate_sized_with_state_size_mismatch.rs:28:31
+   |
+28 |     assert_sized_with_state::<Wrap<Small>, 8, 1>();
+   |                               ^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `SizedGroup<8>` is not implemented for `SmallGroup`
+      but trait `SizedGroup<1>` is implemented for it
+  --> tests/ui/typestate_sized_with_state_size_mismatch.rs:13:1
+   |
+13 | #[group(SmallGroup)]
+   | ^^^^^^^^^^^^^^^^^^
+note: required for `Wrap<Small>` to implement `SizedWithState<8, 1>`
+  --> tests/ui/typestate_sized_with_state_size_mismatch.rs:19:1
+   |
+19 | #[typestate(state = S, unsafe_transmute = true)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound introduced here
+20 | struct Wrap<S: Meta> {
+   |        ^^^^^^^^^^^^^
+note: required by a bound in `assert_sized_with_state`
+  --> tests/ui/typestate_sized_with_state_size_mismatch.rs:24:31
+   |
+24 | fn assert_sized_with_state<T: groupoid::SizedWithState<N, A>, const N: usize, const A: usize>() {}
+   |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_sized_with_state`
+   = note: this error originates in the attribute macro `group` which comes from the expansion of the attribute macro `typestate` (in Nightly builds, run with -Z macro-backtrace for more info)

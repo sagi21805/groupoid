@@ -1,0 +1,13 @@
+error[E0437]: type `Marker` is not a member of trait `Testing`
+  --> tests/ui/group_on_non_blueprint_trait.rs:13:1
+   |
+13 | #[group(G)]
+   | ^^^^^^^^^^^ not a member of trait `Testing`
+   |
+   = note: this error originates in the attribute macro `group` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0405]: cannot find trait `TestingGroupMarker` in this scope
+  --> tests/ui/group_on_non_blueprint_trait.rs:14:6
+   |
+14 | impl Testing for (StateA,) {
+   |      ^^^^^^^ not found in this scope

@@ -1,0 +1,10 @@
+error[E0425]: cannot find type `NeverDeclared` in this scope
+  --> tests/ui/group_impl_unknown_group_name.rs:30:14
+   |
+30 | #[group_impl(NeverDeclared)]
+   |              ^^^^^^^^^^^^^ not found in this scope
+   |
+help: you might be missing a type parameter
+   |
+31 | impl<S: Testing, NeverDeclared> Fetch for Widget<S> {
+   |                +++++++++++++++

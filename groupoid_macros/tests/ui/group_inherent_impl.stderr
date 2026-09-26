@@ -1,0 +1,7 @@
+error: use `#[group]` on a trait impl, such as `impl Blueprint for (StateA, StateB)`
+ --> tests/ui/group_inherent_impl.rs:7:1
+  |
+7 | / impl Foo {
+8 | |     fn method() {}
+9 | | }
+  | |_^

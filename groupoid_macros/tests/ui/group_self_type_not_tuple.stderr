@@ -1,0 +1,5 @@
+error: implement the trait for a tuple of states, such as `(StateA, StateB)`
+  --> tests/ui/group_self_type_not_tuple.rs:12:18
+   |
+12 | impl Testing for StateA {
+   |                  ^^^^^^

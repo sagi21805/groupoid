@@ -1,0 +1,14 @@
+[workspace]
+changelog_update = true
+git_tag_enable = true
+git_release_enable = true
+pr_labels = ["release"]
+pr_name = "chore: release{% if package %} {{ package }}{% endif %}"
+
+[[package]]
+name = "groupoid"
+changelog_path = "./groupoid/CHANGELOG.md"
+
+[[package]]
+name = "groupoid_macros"
+changelog_path = "./groupoid_macros/CHANGELOG.md"

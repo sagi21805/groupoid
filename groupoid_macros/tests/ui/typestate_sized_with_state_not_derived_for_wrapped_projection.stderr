@@ -1,0 +1,5 @@
+error: make this field `S::Assoc`, a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `restate_with`
+  --> tests/ui/typestate_sized_with_state_not_derived_for_wrapped_projection.rs:22:12
+   |
+22 |     value: Option<S::Value>,
+   |            ^^^^^^^^^^^^^^^^

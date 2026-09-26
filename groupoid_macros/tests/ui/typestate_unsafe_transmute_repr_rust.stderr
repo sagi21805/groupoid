@@ -1,0 +1,5 @@
+error: add `C` to this `#[repr(..)]`: `unsafe_transmute = true` needs a guaranteed field layout
+  --> tests/ui/typestate_unsafe_transmute_repr_rust.rs:21:1
+   |
+21 | #[repr(Rust)]
+   | ^^^^^^^^^^^^^

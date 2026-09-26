@@ -1,0 +1,5 @@
+error: expected `state = <Ident>`, `unsafe_transmute = <bool>` or `align = <integer literal>`
+ --> tests/ui/typestate_bad_attribute_grammar.rs:4:13
+  |
+4 | #[typestate(State = S)]
+  |             ^^^^^
