@@ -83,6 +83,19 @@ pub(crate) impl Path {
                 _ => false,
             }
     }
+
+    /// This path with its last identifier replaced by `rename` of it,
+    /// e.g. `a::Meta` -> `a::MetaGroupMarker`.
+    fn with_last_ident(
+        &self,
+        rename: impl FnOnce(&Ident) -> Ident,
+    ) -> Path {
+        let mut path = self.clone();
+        if let Some(last) = path.segments.last_mut() {
+            last.ident = rename(&last.ident);
+        }
+        path
+    }
 }
 
 #[ext]

@@ -2,15 +2,20 @@ use extend::ext;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{
-    FnArg, Ident, ItemTrait, Pat, PatIdent, PatType, Signature, Token,
-    TraitItem, TraitItemConst, TraitItemFn, TypePath,
+    FnArg, Ident, ItemTrait, Pat, PatIdent, PatType, Path, Signature,
+    Token, TraitItem, TraitItemConst, TraitItemFn, TypePath,
     parse::{Parse, ParseStream},
 };
+
+use crate::syn_ext::PathExt as _;
 
 pub struct GroupTrait<'ast> {
     args: &'ast GroupTraitArgs,
     item_trait: &'ast ItemTrait,
-    marker_trait: TypePath,
+    /// `{Template}GroupMarker`
+    marker_trait: Path,
+    /// `{Template}GroupMember`
+    member_trait: Path,
     /// `<T::State as Template>::Marker`
     marker: TokenStream,
     helper_ident: Ident,
@@ -22,17 +27,17 @@ impl<'ast> GroupTrait<'ast> {
         args: &'ast GroupTraitArgs,
         item_trait: &'ast ItemTrait,
     ) -> GroupTrait<'ast> {
-        let mut marker_trait = args.ty.clone();
-        if let Some(last) = marker_trait.path.segments.last_mut() {
-            last.ident = crate::naming::group_marker_ident(&last.ident);
-        }
-
         let template = &args.ty;
 
         GroupTrait {
             args,
             item_trait,
-            marker_trait,
+            marker_trait: template
+                .path
+                .with_last_ident(crate::naming::group_marker_ident),
+            member_trait: template
+                .path
+                .with_last_ident(crate::naming::group_member_ident),
             marker: quote!(<T::State as #template>::Marker),
             helper_ident: crate::naming::helper_trait_ident(
                 &item_trait.ident,
@@ -44,16 +49,20 @@ impl<'ast> GroupTrait<'ast> {
     }
 
     /// The trait, its hidden helper trait with the default bodies, and a
-    /// blanket impl that
-    /// forwards every method to the helper impl of the state's group.
+    /// blanket impl that forwards every method to the helper impl of the
+    /// state's group. The helper module also aliases the template's
+    /// `{Template}GroupMember` as `Member`, for `#[group_impl]` to name.
     pub fn generate_group_trait(&self) -> syn::Result<TokenStream> {
         let GroupTrait {
             marker_trait,
+            member_trait,
             marker,
             helper_ident,
             helper_mod_ident,
             ..
         } = self;
+        let member_ident = crate::naming::helper_member_ident();
+        let group = crate::naming::group_param_ident();
 
         let ItemTrait {
             attrs,
@@ -117,6 +126,10 @@ impl<'ast> GroupTrait<'ast> {
                 pub trait #helper_ident<Marker: #marker_trait> {
                     #(#items)*
                 }
+
+                pub trait #member_ident<#group: #marker_trait>: #member_trait<#group> {}
+
+                impl<#group: #marker_trait, T: #member_trait<#group>> #member_ident<#group> for T {}
             }
 
             impl<T> #trait_ident for T

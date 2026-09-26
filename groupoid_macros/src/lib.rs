@@ -210,14 +210,14 @@ pub fn state(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 ///
 /// #[group_impl(Numbers)]
-/// impl<S: Meta<Value = u32>> Describe for Wrap<S> {
+/// impl<S: Meta> Describe for Wrap<S> {
 ///     fn describe(&self) -> String {
 ///         format!("number {}", self.value)
 ///     }
 /// }
 ///
 /// #[group_impl(Words)]
-/// impl<S: Meta<Value = String>> Describe for Wrap<S> {
+/// impl<S: Meta> Describe for Wrap<S> {
 ///     fn describe(&self) -> String {
 ///         format!("word {}", self.value)
 ///     }
