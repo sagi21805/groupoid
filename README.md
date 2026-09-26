@@ -14,91 +14,194 @@ keeps each state's transitions type-safe and explicit.
 
 ## Example
 
-An order moves through four states. While it's open, it holds item
-prices. Once it's paid, it holds a receipt. You want one `total()` that
-works in every state.
-
-In plain Rust you'd reach for two impls:
-
-```rust,ignore
-impl<S: Stage<Contents = Vec<u32>>> Order<S> { fn total(&self) -> u32 { .. } }
-impl<S: Stage<Contents = Receipt>> Order<S> { fn total(&self) -> u32 { .. } }
-```
-
-rustc rejects this with `E0592: duplicate definitions`, because it can't
-tell that no state satisfies both bounds. So you end up with one impl per
-state, or an enum and a runtime `match`. With `groupoid`, you name the
-groups and write one impl for each:
+A sensor frame moves through four states. The first two hold raw 12-bit
+ADC counts (`u16`), the last two hold volts (`f32`). The frame keeps its
+samples in three shapes: a `Vec`, an `Option` and an array.
 
 ```rust
 use groupoid::{group, group_impl, group_trait, state, template, typestate};
 
-struct Receipt {
-    charged: u32,
-}
-
 #[template]
 trait Stage {
-    type Contents;
+    type Sample;
 }
 
 #[state]
-struct Cart;
+struct Sampled;
 #[state]
-struct Checkout;
+struct Filtered;
 #[state]
-struct Paid;
+struct Calibrated;
 #[state]
-struct Shipped;
+struct Published;
 
-#[group(Open)]
-impl Stage for (Cart, Checkout) {
-    type Contents = Vec<u32>;
+#[group(Counts)]
+impl Stage for (Sampled, Filtered) {
+    type Sample = u16;
 }
 
-#[group(Closed)]
-impl Stage for (Paid, Shipped) {
-    type Contents = Receipt;
+#[group(Volts)]
+impl Stage for (Calibrated, Published) {
+    type Sample = f32;
 }
 
 #[typestate]
-struct Order<S: Stage> {
-    contents: S::Contents,
+struct Frame<S: Stage> {
+    sensor: u32,
+    history: Vec<S::Sample>,
+    latest: Option<S::Sample>,
+    range: [S::Sample; 2],
 }
 
 #[group_trait(by = Stage)]
-trait Total {
-    fn total(&self) -> u32;
+trait Report {
+    fn report(&self) -> String;
 }
 
-#[group_impl(Open)]
-impl<S: Stage> Total for Order<S> {
-    fn total(&self) -> u32 {
-        self.contents.iter().sum()
+#[group_impl(Counts)]
+impl<S: Stage> Report for Frame<S> {
+    fn report(&self) -> String {
+        let [lo, hi] = self.range;
+        format!("sensor {}: {lo}..={hi} counts", self.sensor)
     }
 }
 
-#[group_impl(Closed)]
-impl<S: Stage> Total for Order<S> {
-    fn total(&self) -> u32 {
-        self.contents.charged
+#[group_impl(Volts)]
+impl<S: Stage> Report for Frame<S> {
+    fn report(&self) -> String {
+        let [lo, hi] = self.range;
+        format!("sensor {}: {lo:.2}..={hi:.2} V", self.sensor)
+    }
+}
+
+impl Frame<Sampled> {
+    fn filter(self) -> Frame<Filtered> {
+        self.morph_with(|counts| counts.min(4095))
+    }
+}
+
+impl Frame<Filtered> {
+    fn calibrate(self) -> Frame<Calibrated> {
+        self.morph_with(|counts| f32::from(counts) * 3.3 / 4095.0)
+    }
+}
+
+impl Frame<Calibrated> {
+    fn publish(self) -> Frame<Published> {
+        self.morph_with(|volts| (volts * 100.0).round() / 100.0)
     }
 }
 
 fn main() {
-    let checkout = Order::<Checkout> { contents: vec![1200, 300] };
-    assert_eq!(checkout.total(), 1500);
+    let frame = Frame::<Sampled> {
+        sensor: 7,
+        history: vec![0, 2048, 9999],
+        latest: Some(9999),
+        range: [0, 9999],
+    };
+    assert_eq!(frame.report(), "sensor 7: 0..=9999 counts");
 
-    let paid: Order<Paid> = checkout.morph_with(|prices| Receipt {
-        charged: prices.iter().sum(),
-    });
-    assert_eq!(paid.total(), 1500);
+    let frame = frame.filter();
+    assert_eq!(frame.report(), "sensor 7: 0..=4095 counts");
+
+    let frame = frame.calibrate().publish();
+    assert_eq!(frame.report(), "sensor 7: 0.00..=3.30 V");
+    assert_eq!(frame.latest, Some(3.3));
 }
 ```
 
-Each impl sees the concrete field type, so `self.contents.iter()` needs
-no cast. A new state joins a group by being added to its tuple, and it
-gets `total()` without another line of code.
+Three things happen here that plain Rust won't give you.
+
+**Two impls of one trait, split by an associated type.** Plain Rust
+rejects this pair with `E0119: conflicting implementations`, because
+coherence doesn't look at associated types:
+
+```rust,ignore
+impl<S: Stage<Sample = u16>> Report for Frame<S> { .. }
+impl<S: Stage<Sample = f32>> Report for Frame<S> { .. }
+```
+
+The usual workarounds are one impl per state or an enum with a runtime
+`match`. With `groupoid` each group gets one impl, and that impl sees the
+concrete type: `{lo}` is a `u16` in one and `{lo:.2}` formats an `f32` in
+the other. Add a state to a group's tuple and it has `report()` with no
+new code.
+
+**One closure converts every sample.** `calibrate` never names a field.
+`morph_with` walks the `Vec`, the `Option` and the array, calls the
+closure on each of the six samples, and moves `sensor` across untouched.
+Add a `BTreeMap<u8, S::Sample>` field and the three transitions still
+compile unchanged. The return type picks the target state, so a closure
+that returns the wrong sample type is a type error.
+
+**Transitions check their order.** `filter` exists only on
+`Frame<Sampled>` and `calibrate` only on `Frame<Filtered>`, so
+`frame.calibrate()` on a raw frame doesn't compile.
+
+### Zero-copy transitions
+
+When every state-dependent field is a bare `S::Addr`, a transition can
+reuse the bits instead of rebuilding the value. `#[size(N)]` pins each
+group's size, and `unsafe_transmute = true` generates the transmute:
+
+```rust
+use groupoid::{Isomorphic, group, state, template, typestate};
+
+#[template]
+trait Wire {
+    type Addr;
+}
+
+#[state]
+struct Received;
+#[state]
+struct Routed;
+
+#[group(Octets)]
+impl Wire for (Received,) {
+    #[size(4)]
+    type Addr = [u8; 4];
+}
+
+#[group(Packed)]
+impl Wire for (Routed,) {
+    #[size(4)]
+    type Addr = u32;
+}
+
+#[typestate(unsafe_transmute = true, align = 4)]
+struct Header<S: Wire> {
+    src: S::Addr,
+    dst: S::Addr,
+    ttl: u8,
+}
+
+fn main() {
+    let header = Header::<Received> {
+        src: [10, 0, 0, 1],
+        dst: [10, 0, 0, 2],
+        ttl: 64,
+    };
+    // SAFETY: every bit pattern of `[u8; 4]` is a valid `u32`.
+    let header: Header<Routed> = unsafe { header.transmute_state() };
+    assert_eq!(header.dst, u32::from_ne_bytes([10, 0, 0, 2]));
+    assert_eq!(header.ttl, 64);
+}
+```
+
+The layout is checked at compile time. Change `Packed` to `u64` and the
+build fails with an error that says what to write:
+
+```text
+error[E0080]: evaluation panicked: change `#[size(4)]` on `Addr` to the size of `u64`
+  --> src/main.rs:19:1
+   |
+19 | #[group(Packed)]
+   | ^^^^^^^^^^^^^^^^ evaluation of `_` failed here
+```
+
+Drop `align = 4` and the error asks you to add it back, since `[u8; 4]`
+and `u32` disagree on alignment.
 
 ## Crates
 
