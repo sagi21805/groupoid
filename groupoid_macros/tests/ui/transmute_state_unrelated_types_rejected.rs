@@ -1,10 +1,5 @@
-// `TransmuteState::transmute_state` (and friends) take only the target state
-// and land in `TransmutableState::Target`, which `#[typestate]` always sets
-// to the *same* struct with the state swapped. So two same-sized but
-// otherwise unrelated `WithState` types are not merely rejected by a trait
-// bound - there is no way to even ask for the cast. `WrapA<A>` into state `A`
-// is `WrapA<A>`, and handing that back as a `WrapB<A>` is an ordinary
-// mismatched-types error.
+// `transmute_state` can't turn one struct into another, even at the same
+// size.
 #![allow(dead_code)]
 use groupoid::TransmuteState;
 use groupoid_macros::{blueprint, group, state, typestate};

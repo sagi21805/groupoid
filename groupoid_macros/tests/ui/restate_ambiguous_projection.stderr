@@ -1,5 +1,5 @@
 error: `#[typestate]` cannot generate `restate_with` for a struct that projects both `S::Value` and `S::Marker`: the conversion `f` would be ambiguous
-  --> tests/ui/restate_ambiguous_projection.rs:16:16
+  --> tests/ui/restate_ambiguous_projection.rs:13:16
    |
-16 |     marker: S::Marker,
+13 |     marker: S::Marker,
    |                ^^^^^^

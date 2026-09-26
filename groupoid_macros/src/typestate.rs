@@ -1,10 +1,10 @@
 use extend::ext;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::quote;
 use syn::{
-    Attribute, ConstParam, Field, Fields, GenericParam, Generics, Ident,
-    Index, ItemStruct, LifetimeParam, LitBool, LitInt, Path,
-    PathArguments, Token, Type, TypeParam, TypePath, TypeTuple,
+    Attribute, ConstParam, Field, Fields, GenericArgument, GenericParam,
+    Generics, Ident, Index, ItemStruct, LifetimeParam, LitBool, LitInt,
+    Path, PathArguments, Token, Type, TypeParam, TypePath, TypeTuple,
     WherePredicate,
     parse::{Parse, ParseStream},
     parse_quote,
@@ -12,8 +12,7 @@ use syn::{
 };
 
 use crate::syn_ext::{
-    AttributeExt as _, GenericsExt as _, OptionExt as _, PathExt as _,
-    TypeExt as _,
+    AttributeExt as _, GenericsExt as _, OptionExt as _, TypeExt as _,
 };
 
 pub(crate) struct TypeState {
@@ -47,7 +46,7 @@ impl TypeState {
         state_param.bounds.push(parse_quote!(::groupoid::State));
 
         let target_state = TypeParam {
-            ident: format_ident!("__GroupoidTargetState"),
+            ident: crate::naming::target_state_ident(),
             ..state_param.clone()
         };
         let state = state_param.ident.clone();
@@ -62,9 +61,7 @@ impl TypeState {
                     &item_struct.ident,
                     format!(
                         "`unsafe_transmute = true` needs at least one \
-                         field to be a bare `{state}::Assoc` projection: \
-                         without one there is nothing to transmute \
-                         between states",
+                         field to be a bare `{state}::Assoc` projection",
                     ),
                 ));
             }
@@ -83,12 +80,12 @@ impl TypeState {
 
     /// The struct followed by every impl `#[typestate]` derives for it.
     ///
-    /// ```rust
+    /// ```text
     /// #[typestate(unsafe_transmute = true)]
     /// struct Wrap<S> { value: S::Value }
     /// ```
     /// expands to
-    /// ```rust
+    /// ```text
     /// #[repr(C)]
     /// struct Wrap<S: ::groupoid::State> { value: S::Value }
     /// impl<S: ::groupoid::State> ::groupoid::WithState for Wrap<S> { type State = S; }
@@ -186,9 +183,10 @@ impl TypeState {
         let (impl_generics, _, where_clause) = generics.split_for_impl();
 
         quote! {
-            // SAFETY: `Self` and `Target` are the same struct with only the state parameter swapped.
-            // Every field is either a bare projection through that state, a ZST, or state-independent.
-            // Both projections are pinned to the same size and alignment so `repr(C)` lays the two out identically.
+            // SAFETY: `Self` and `Target` differ only in the state, every
+            // field is a projection, a ZST or state-independent, and both
+            // projections share size and alignment, so `repr(C)` lays
+            // them out identically.
             unsafe impl #impl_generics ::groupoid::TransmutableState<
                 #target_state, __GROUPOID_SIZE, #align_arg
             > for #struct_ident #ty_generics #where_clause {
@@ -197,16 +195,15 @@ impl TypeState {
         }
     }
 
-    /// The inherent `restate_with` method, a by-value transition that
-    /// rebuilds the struct field by field with the caller's
-    /// conversion `f`.
+    /// The inherent `restate_with` method, which rebuilds the struct for
+    /// another state by value.
     fn restate_impl(&self, projection: &Ident) -> TokenStream {
         let struct_ident = &self.item_struct.ident;
         let state = &self.state;
         let target_state = &self.target_state.ident;
         let target_ty = &self.target_ty;
-        let f = &format_ident!("f");
-        let elem = &format_ident!("v");
+        let f = &crate::naming::restate_fn_ident();
+        let elem = &crate::naming::restate_elem_ident();
         let (impl_generics, ty_generics, where_clause) =
             self.item_struct.generics.split_for_impl();
 
@@ -230,13 +227,12 @@ impl TypeState {
 
         quote! {
             impl #impl_generics #struct_ident #ty_generics #where_clause {
-                /// Rebuilds `self` for the target state by value, converting
-                /// every projection through the state with `f`.
+                /// Rebuilds `self` for the target state, converting every
+                /// projection through the state with `f`.
                 ///
-                /// A projection is reached through any nesting of `Option`,
-                /// arrays, `Box` and tuples; any other wrapper around one is
-                /// handed to `groupoid::Restate`. Fields that do not
-                /// mention the state are moved as they are.
+                /// Tuples are rebuilt in place, and every other wrapper goes
+                /// through `groupoid::Restate`, one layer at a time. Fields
+                /// that don't mention the state move unchanged.
                 pub fn restate_with #with_impl_generics (
                     self,
                     mut #f: impl FnMut(#state::#projection)
@@ -337,9 +333,7 @@ impl Parse for TypeStateArgs {
             } else if let Alignment::Forced(n) = align {
                 return Err(syn::Error::new(
                     n.span(),
-                    "`align` only applies with `unsafe_transmute = \
-                     true`. The by-value `restate_with` path never looks \
-                     at alignment",
+                    "`align` requires `unsafe_transmute = true`",
                 ));
             } else {
                 Transmute::Off
@@ -434,8 +428,7 @@ impl ItemStruct {
         Ok(Some(first))
     }
 
-    /// Checks that every field's layout can be pinned across states by the
-    /// state's `SizedGroup`/`AlignedGroup` impls.
+    /// Checks that every field's layout can be pinned across states.
     fn require_transmutable_layout(
         &self,
         state: &Ident,
@@ -447,10 +440,8 @@ impl ItemStruct {
                     format!(
                         "`unsafe_transmute = true` needs every field to \
                          be a bare `{state}::Assoc` projection, a ZST, \
-                         or independent of `{state}`; this one reaches \
-                         the state through a wrapper, so the two states' \
-                         layouts cannot be pinned to each other - use \
-                         `restate_with` instead"
+                         or independent of `{state}`; use `restate_with` \
+                         for fields that wrap the state"
                     ),
                 ));
             }
@@ -553,11 +544,8 @@ impl Generics {
 
 #[ext]
 impl Field {
-    /// Whether this field's layout can be pinned across states: a bare
-    /// `S::Value` projection, a ZST (`()`, `PhantomData<..>`, etc.), or a
-    /// type that never mentions the state. A field reaching the state
-    /// through a wrapper (`Option<S::Value>`, `[S::Value; 2]`, etc.) is
-    /// not.
+    /// Whether this field is a bare `S::Value`, a ZST, or doesn't mention
+    /// the state. `Option<S::Value>` is not.
     fn is_transmutable(&self, state: &Ident) -> bool {
         self.ty.state_projection(state).is_some()
             || self.ty.is_zst()
@@ -567,9 +555,9 @@ impl Field {
 
 #[ext]
 impl Type {
-    /// Every `Assoc` of an `S::Assoc` written anywhere inside this type,
-    /// so `Option<S::Value>` yields `Value` just as a bare `S::Value`
-    /// does.
+    /// The `Assoc` of every `S::Assoc` inside this type.
+    ///
+    /// `Option<S::Value> -> [Value]`
     fn projections(&self, state: &Ident) -> Vec<Ident> {
         let mut projections = Projections {
             state,
@@ -579,12 +567,9 @@ impl Type {
         projections.found
     }
 
-    /// The expression rebuilding `expr`, a movable value of this type, for
-    /// the target state.
-    ///
-    /// Recurses through `Option`, arrays, `Box` and tuples. Anything else
-    /// that mentions the state goes through `groupoid::Restate`, with its
-    /// bound pushed onto `predicates`.
+    /// The expression rebuilding `expr`, a value of this type, for the
+    /// target state. Pushes the `Restate` bounds it needs onto
+    /// `predicates`.
     fn restate_expr(
         &self,
         ctx: &RestateCtx,
@@ -601,14 +586,40 @@ impl Type {
             RestateShape::Tuple(tuple) => {
                 tuple.restate_tuple(ctx, expr, predicates)
             }
-            RestateShape::Mapped(elem) => {
-                elem.restate_mapped_expr(ctx, expr, predicates)
-            }
-            RestateShape::Boxed(inner) => {
-                inner.restate_boxed_expr(ctx, expr, predicates)
+            RestateShape::Wrapped(inner) => {
+                let RestateCtx {
+                    state,
+                    target_state,
+                    elem,
+                    ..
+                } = ctx;
+                let inner_expr =
+                    inner.restate_expr(ctx, quote!(#elem), predicates);
+                self.restate_call(
+                    expr,
+                    quote!(#inner),
+                    inner.with_ident_renamed(state, target_state),
+                    quote!(|#elem| #inner_expr),
+                    ctx,
+                    predicates,
+                )
             }
             RestateShape::Opaque => {
-                self.opaque_restate_expr(ctx, expr, predicates)
+                let RestateCtx {
+                    state,
+                    target_state,
+                    projection,
+                    f,
+                    ..
+                } = ctx;
+                self.restate_call(
+                    expr,
+                    quote!(#state::#projection),
+                    quote!(#target_state::#projection),
+                    quote!(#f),
+                    ctx,
+                    predicates,
+                )
             }
         }
     }
@@ -624,86 +635,63 @@ impl Type {
         if let Some(value) = self.zst_value() {
             return RestateShape::Zst(value);
         }
+        if let Type::Tuple(tuple) = self.peeled() {
+            return RestateShape::Tuple(tuple);
+        }
 
-        match self.peeled() {
-            Type::Tuple(tuple) => RestateShape::Tuple(tuple),
-            Type::Array(array) => RestateShape::Mapped(&array.elem),
+        self.restate_inner(state)
+            .map_or(RestateShape::Opaque, RestateShape::Wrapped)
+    }
+
+    /// The one generic argument that mentions the state, or the element
+    /// of an array.
+    ///
+    /// `Option<[S::Value; 2]> -> [S::Value; 2]`
+    fn restate_inner(&self, state: &Ident) -> Option<&Type> {
+        let path = match self.peeled() {
+            Type::Array(array) => return Some(&array.elem),
             Type::Path(TypePath {
                 qself: None, path, ..
-            }) => {
-                if let Some(inner) = path.std_item_arg("option", "Option")
-                {
-                    RestateShape::Mapped(inner)
-                } else if let Some(inner) =
-                    path.std_item_arg("boxed", "Box")
-                {
-                    RestateShape::Boxed(inner)
-                } else {
-                    RestateShape::Opaque
-                }
-            }
-            _ => RestateShape::Opaque,
-        }
+            }) => path,
+            _ => return None,
+        };
+        let PathArguments::AngleBracketed(args) =
+            &path.segments.last()?.arguments
+        else {
+            return None;
+        };
+
+        let mut inners = args.args.iter().filter_map(|arg| {
+            let GenericArgument::Type(ty) = arg else {
+                return None;
+            };
+            ty.mentions_ident(state).then_some(ty)
+        });
+        let first = inners.next()?;
+        inners.all(|ty| ty == first).then_some(first)
     }
 
-    /// `restate_expr` for a container of this type with a by-value `map`
-    /// (`[Self; N]`, `Option<Self>`): each element is rebuilt inside the
-    /// closure.
-    fn restate_mapped_expr(
+    /// A `Restate<src, dst>` call on `expr` with the closure `convert`,
+    /// and the bound it needs.
+    fn restate_call(
         &self,
-        ctx: &RestateCtx,
         expr: TokenStream,
+        src: TokenStream,
+        dst: TokenStream,
+        convert: TokenStream,
+        ctx: &RestateCtx,
         predicates: &mut Vec<WherePredicate>,
     ) -> TokenStream {
-        let elem = ctx.elem;
-        let inner = self.restate_expr(ctx, quote!(#elem), predicates);
-        quote!(#expr.map(|#elem| #inner))
-    }
-
-    /// `restate_expr` for a `Box<Self>`: the value is moved out, rebuilt,
-    /// and boxed again.
-    fn restate_boxed_expr(
-        &self,
-        ctx: &RestateCtx,
-        expr: TokenStream,
-        predicates: &mut Vec<WherePredicate>,
-    ) -> TokenStream {
-        let elem = ctx.elem;
-        let inner = self.restate_expr(ctx, quote!(#elem), predicates);
-        quote!(::std::boxed::Box::new({
-            let #elem = *#expr;
-            #inner
-        }))
-    }
-
-    /// `restate_expr` for a type the recursion cannot see through: a call
-    /// into the user's `Restate` impl, and the bound requiring it.
-    fn opaque_restate_expr(
-        &self,
-        ctx: &RestateCtx,
-        expr: TokenStream,
-        predicates: &mut Vec<WherePredicate>,
-    ) -> TokenStream {
-        let RestateCtx {
-            state,
-            target_state,
-            projection,
-            f,
-            ..
-        } = ctx;
-        let target_ty = self.with_ident_renamed(state, target_state);
-        let (src, dst) = (
-            quote!(#state::#projection),
-            quote!(#target_state::#projection),
-        );
+        let target_ty =
+            self.with_ident_renamed(ctx.state, ctx.target_state);
 
         predicates.push(parse_quote!(
             #self: ::groupoid::Restate<#src, #dst, Output = #target_ty>
         ));
-        quote!(<#self as ::groupoid::Restate<#src, #dst>>::restate(#expr, &mut #f))
+        quote!(<#self as ::groupoid::Restate<#src, #dst>>::restate(#expr, &mut #convert))
     }
 
-    /// `Value` when this type is a state type like `S::Value`.
+    /// `Value` when this type is `S::Value`.
     fn state_projection(&self, state: &Ident) -> Option<&Ident> {
         let Type::Path(TypePath {
             qself: None,
@@ -730,8 +718,7 @@ impl Type {
 
 #[ext]
 impl TypeTuple {
-    /// `Type::restate_expr` for a tuple: `expr` is destructured and
-    /// rebuilt element by element.
+    /// `(T, ..)`, destructured and rebuilt element by element.
     fn restate_tuple(
         &self,
         ctx: &RestateCtx,
@@ -739,7 +726,7 @@ impl TypeTuple {
         predicates: &mut Vec<WherePredicate>,
     ) -> TokenStream {
         let bindings: Vec<Ident> = (0..self.elems.len())
-            .map(|i| format_ident!("v{i}"))
+            .map(crate::naming::tuple_binding_ident)
             .collect();
         let elems =
             self.elems.iter().zip(&bindings).map(|(ty, binding)| {
@@ -752,27 +739,23 @@ impl TypeTuple {
     }
 }
 
-/// How `Type::restate_expr` rebuilds a value of some type for the target
-/// state.
+/// How `Type::restate_expr` rebuilds a value for the target state.
 enum RestateShape<'a> {
-    /// The type never mentions the state: the value is moved as it is.
+    /// A type that doesn't mention the state, moved as is.
     Unchanged,
-    /// A bare `S::Value`
+    /// `S::Value`, passed to `f`.
     Direct,
-    /// A ZST
+    /// A ZST, created fresh.
     Zst(TokenStream),
-    /// (T, ..).
+    /// `(T, ..)`
     Tuple(&'a TypeTuple),
-    /// Any wrapper type that implements `.map()``.
-    Mapped(&'a Type),
-    /// `Box<T>`
-    Boxed(&'a Type),
-    /// Anything else.
+    /// `Wrapper<T>` or `[T; N]`, one `Restate` layer around `T`.
+    Wrapped(&'a Type),
+    /// Anything else, one `Restate` call on the projection.
     Opaque,
 }
 
-/// Collects the `Assoc` of every `S::Assoc` among the types it visits,
-/// for `Type::projections`.
+/// Collects the `Assoc` of every `S::Assoc` it visits.
 struct Projections<'a> {
     state: &'a Ident,
     found: Vec<Ident>,
@@ -787,14 +770,13 @@ impl<'ast> Visit<'ast> for Projections<'_> {
     }
 }
 
-/// What `Type::restate_expr` needs to convert a projection through the
-/// state.
+/// What `Type::restate_expr` needs to convert a projection.
 struct RestateCtx<'a> {
     state: &'a Ident,
     target_state: &'a Ident,
-    /// Value in S::Value.
+    /// `Value` in `S::Value`.
     projection: &'a Ident,
-    /// The function that is applied on the element.
+    /// The conversion closure.
     f: &'a Ident,
     /// The closure binding for one element of a mapped or boxed value.
     elem: &'a Ident,

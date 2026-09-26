@@ -1,5 +1,5 @@
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::quote;
 use syn::{Ident, ImplItem, ImplItemType, ItemImpl, LitInt, Type};
 
 pub struct Group<'ast> {
@@ -26,11 +26,11 @@ impl<'ast> Group<'ast> {
         let group_impls = self.sized_group_impls(&mut items)?;
 
         let items_tokens = quote! { #(#items)* };
-        let marker_trait = format_ident!("{}GroupMarker", trait_name);
+        let marker_trait = crate::naming::group_marker_ident(trait_name);
         let group_name = self.group_name;
 
         Ok(quote! {
-            struct #group_name;
+            pub struct #group_name;
 
             impl ::groupoid::Group for #group_name {}
 
@@ -41,8 +41,7 @@ impl<'ast> Group<'ast> {
             }
 
             #(
-                impl #trait_name for #states{
-
+                impl #trait_name for #states {
                     #items_tokens
                     type Marker = #group_name;
                 }
@@ -50,25 +49,28 @@ impl<'ast> Group<'ast> {
         })
     }
 
-    /// The trait this `#[group]` impl block is implementing, e.g.
-    /// `Testing` in `impl Testing for (StateA, StateB) { .. }`.
+    /// The implemented trait, e.g. `Testing` in
+    /// `impl Testing for (StateA, StateB)`.
     fn trait_name(&self) -> syn::Result<&'ast Ident> {
-        let (trait_path, _) = self.inner_impl.trait_.as_ref().ok_or(
-            syn::Error::new_spanned(
-                self.inner_impl,
-                "Expected trait impl block, found regular.",
-            ),
-        )?;
+        let (trait_path, _) =
+            self.inner_impl.trait_.as_ref().ok_or_else(|| {
+                syn::Error::new_spanned(
+                    self.inner_impl,
+                    "Expected trait impl block, found regular.",
+                )
+            })?;
 
-        trait_path.get_ident().ok_or(syn::Error::new_spanned(
-            trait_path,
-            "Expected trait path name to be single ident",
-        ))
+        trait_path.get_ident().ok_or_else(|| {
+            syn::Error::new_spanned(
+                trait_path,
+                "Expected trait path name to be single ident",
+            )
+        })
     }
 
-    /// The states this group applies to, parsed out of the tuple `Self`
-    /// type, e.g. `[StateA, StateB]` from `impl Testing for (StateA,
-    /// StateB)`.
+    /// The states in the `Self` tuple.
+    ///
+    /// `(StateA, StateB) -> [StateA, StateB]`
     fn states(&self) -> syn::Result<Vec<&'ast Ident>> {
         let Type::Tuple(tup) = self.inner_impl.self_ty.as_ref() else {
             return Err(syn::Error::new_spanned(
@@ -96,9 +98,9 @@ impl<'ast> Group<'ast> {
             .collect()
     }
 
-    /// The size assertion and `SizedGroup`/`AlignedGroup` impls for the
-    /// group's associated type, or an empty stream if it carries no
-    /// `#[size(N)]`.
+    /// The size assertion and `SizedGroup`/`AlignedGroup` impls, or
+    /// nothing when the associated type has no `#[size(N)]`. Strips the
+    /// attribute from `items`.
     fn sized_group_impls(
         &self,
         items: &mut [ImplItem],
@@ -127,9 +129,8 @@ impl<'ast> Group<'ast> {
     }
 }
 
-/// What a `#[size(N)]` on an associated type established: the
-/// compile-time assertion that `ty` really is `size` bytes, together with
-/// the two facts the trait impls are built from.
+/// A compile-time assertion that `ty` is `size` bytes, read from
+/// `#[size(N)]`.
 pub struct SizeAssert<'a> {
     pub assert: TokenStream,
     pub size: LitInt,
@@ -139,9 +140,8 @@ pub struct SizeAssert<'a> {
 impl<'a> TryFrom<&'a mut ImplItemType> for SizeAssert<'a> {
     type Error = syn::Error;
 
-    /// Reads the `#[size(N)]` off an associated type, rejecting any other
-    /// attribute, and returns the assertion it stands for. The attribute
-    /// is left in place; stripping it is the caller's job.
+    /// Reads and removes the `#[size(N)]` on an associated type, rejecting
+    /// any other attribute.
     fn try_from(impl_ty: &'a mut ImplItemType) -> syn::Result<Self> {
         let ident = &impl_ty.ident;
 
@@ -150,9 +150,8 @@ impl<'a> TryFrom<&'a mut ImplItemType> for SizeAssert<'a> {
                 ident.span(),
                 format!(
                     "exactly one `#[size(N)]` attribute is expected on \
-                     associated type `{}` inside `#[group]`, found {} \
-                     attribute(s)",
-                    ident,
+                     associated type `{ident}` inside `#[group]`, found \
+                     {} attribute(s)",
                     impl_ty.attrs.len()
                 ),
             ));
@@ -163,8 +162,7 @@ impl<'a> TryFrom<&'a mut ImplItemType> for SizeAssert<'a> {
                 attr,
                 format!(
                     "only `#[size(N)]` is allowed on associated type \
-                     `{}` inside `#[group]`",
-                    ident
+                     `{ident}` inside `#[group]`"
                 ),
             ));
         }
@@ -173,13 +171,11 @@ impl<'a> TryFrom<&'a mut ImplItemType> for SizeAssert<'a> {
 
         let ty = &impl_ty.ty;
         let msg = format!(
-            "associated type `{}` is `{}`, which is not {} byte(s)",
-            ident,
-            quote!(#ty).to_string(),
-            size
+            "associated type `{ident}` is `{}`, which is not {size} \
+             byte(s)",
+            quote!(#ty),
         );
 
-        // Remove the #[size(N)] attr from the generated tokenstream
         impl_ty.attrs.clear();
 
         Ok(SizeAssert {

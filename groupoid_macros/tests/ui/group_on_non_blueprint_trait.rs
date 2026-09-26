@@ -1,8 +1,5 @@
-// Documents current (unfriendly) behavior: #[group] does not check that its
-// trait was ever declared with #[blueprint]. Omitting #[blueprint] means the
-// `{Trait}GroupMarker` trait it references by naming convention was never
-// generated, so this fails with a plain "cannot find trait" error from rustc
-// rather than a diagnostic authored by the macro itself.
+// `#[group]` on a trait without `#[blueprint]` fails to find the marker
+// trait.
 #![allow(dead_code)]
 use groupoid_macros::{group, state};
 

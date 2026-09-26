@@ -6,9 +6,18 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Typestate based grouping types for Rust"
-keywords = ["typestate", "state-machine", "groupoid"]
+keywords = ["typestate", "state-machine", "groupoid", "type"]
 categories = ["rust-patterns", "data-structures"]
 readme = "../README.md"
+
+[features]
+default = ["std"]
+# `Restate` impls for `core` types.
+core = []
+# `Restate` impls for `alloc` collections and `Box`.
+alloc = ["core"]
+# `Restate` impls for `HashMap` and `HashSet`.
+std = ["alloc"]
 
 [dependencies]
 groupoid_macros = { path = "../groupoid_macros", version = "0.1.0" }

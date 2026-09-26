@@ -1,6 +1,6 @@
 use extend::ext;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::quote;
 use syn::{
     FnArg, Ident, ItemTrait, Pat, PatIdent, PatType, Signature, Token,
     TraitItem, TraitItemFn, TypePath,
@@ -11,6 +11,8 @@ pub struct GroupTrait<'ast> {
     args: &'ast GroupTraitArgs,
     item_trait: &'ast ItemTrait,
     marker_trait: TypePath,
+    /// `<T::State as Blueprint>::Marker`
+    marker: TokenStream,
     helper_ident: Ident,
     helper_mod_ident: Ident,
 }
@@ -22,13 +24,16 @@ impl<'ast> GroupTrait<'ast> {
     ) -> GroupTrait<'ast> {
         let mut marker_trait = args.ty.clone();
         if let Some(last) = marker_trait.path.segments.last_mut() {
-            last.ident = format_ident!("{}GroupMarker", last.ident);
+            last.ident = crate::naming::group_marker_ident(&last.ident);
         }
+
+        let blueprint = &args.ty;
 
         GroupTrait {
             args,
             item_trait,
             marker_trait,
+            marker: quote!(<T::State as #blueprint>::Marker),
             helper_ident: crate::naming::helper_trait_ident(
                 &item_trait.ident,
             ),
@@ -38,9 +43,12 @@ impl<'ast> GroupTrait<'ast> {
         }
     }
 
+    /// The trait, its hidden helper trait, and a blanket impl that
+    /// forwards every method to the helper impl of the state's group.
     pub fn generate_group_trait(&self) -> syn::Result<TokenStream> {
         let GroupTrait {
             marker_trait,
+            marker,
             helper_ident,
             helper_mod_ident,
             ..
@@ -66,7 +74,6 @@ impl<'ast> GroupTrait<'ast> {
             ));
         }
 
-        // All the function declarations of the trait.
         let declarations: Vec<TokenStream> = items
             .iter()
             .map(|item| match item {
@@ -77,7 +84,6 @@ impl<'ast> GroupTrait<'ast> {
             })
             .collect();
 
-        // All the delegated function for the helper trait.
         let delegations = items
             .iter()
             .filter_map(|item| match item {
@@ -87,7 +93,6 @@ impl<'ast> GroupTrait<'ast> {
             .collect::<syn::Result<Vec<_>>>()?;
 
         let blueprint = &self.args.ty;
-        let concrete_marker = self.marker();
 
         Ok(quote! {
             #(#attrs)*
@@ -96,7 +101,6 @@ impl<'ast> GroupTrait<'ast> {
             }
 
             #[doc(hidden)]
-            #[allow(non_snake_case)]
             #vis mod #helper_mod_ident {
                 use super::*;
 
@@ -110,31 +114,24 @@ impl<'ast> GroupTrait<'ast> {
             where
                 T: ::groupoid::WithState,
                 T::State: #blueprint,
-                T: #helper_mod_ident::#helper_ident<#concrete_marker>,
+                T: #helper_mod_ident::#helper_ident<#marker>,
             {
                 #(#delegations)*
             }
         })
     }
 
-    /// `<T::State as `blueprint`>::Marker`
-    fn marker(&self) -> TokenStream {
-        let blueprint = &self.args.ty;
-        quote!(<T::State as #blueprint>::Marker)
-    }
-
-    /// Change original trait function to call the helper trait impl
-    /// instead.
+    /// `method` with a body that calls the helper trait's version.
     fn delegate(&self, method: &TraitItemFn) -> syn::Result<TokenStream> {
         let sig = &method.sig;
         let args = sig.forwarded_args()?;
 
         let GroupTrait {
+            marker,
             helper_ident,
             helper_mod_ident,
             ..
         } = self;
-        let marker = self.marker();
         let method_ident = &sig.ident;
 
         Ok(quote! {
@@ -145,20 +142,17 @@ impl<'ast> GroupTrait<'ast> {
     }
 }
 
-/// Parsed `#[group_trait(...)]` arguments.
+/// `#[group_trait]`'s arguments: `by = <Blueprint>`.
 pub struct GroupTraitArgs {
-    _by: kw::by,
-    _eq: Token![=],
     ty: TypePath,
 }
 
 impl Parse for GroupTraitArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        Ok(GroupTraitArgs {
-            _by: input.parse()?,
-            _eq: input.parse()?,
-            ty: input.parse()?,
-        })
+        input.parse::<kw::by>()?;
+        input.parse::<Token![=]>()?;
+
+        Ok(GroupTraitArgs { ty: input.parse()? })
     }
 }
 
@@ -168,7 +162,8 @@ mod kw {
 
 #[ext]
 impl Signature {
-    /// The forwarded arguments for helper trait impl.
+    /// The arguments to forward to the helper trait: `self` and each
+    /// argument's identifier.
     fn forwarded_args(&self) -> syn::Result<Vec<TokenStream>> {
         if let Some(asyncness) = &self.asyncness {
             return Err(syn::Error::new_spanned(

@@ -1,6 +1,5 @@
-// A wrapper without a `Restate` impl fails where `restate_with` is
-// called.
-#![allow(dead_code)]
+// A layer with two different arguments that mention the state has no one
+// inner type to restate, so the call site needs a whole-type impl.
 use groupoid_macros::{blueprint, group, state, typestate};
 
 #[blueprint]
@@ -15,24 +14,20 @@ struct Big;
 
 #[group(SmallGroup)]
 impl Meta for (Small,) {
-    #[size(4)]
     type Value = u32;
 }
 
 #[group(BigGroup)]
 impl Meta for (Big,) {
-    #[size(4)]
     type Value = i32;
 }
 
-struct Pair<T>(T, T);
-
 #[typestate(state = S)]
 struct Wrap<S: Meta> {
-    user: Pair<S::Value>,
+    value: Result<S::Value, [S::Value; 2]>,
 }
 
 fn main() {
-    let small = Wrap::<Small> { user: Pair(1, 2) };
+    let small = Wrap::<Small> { value: Ok(1) };
     let _big: Wrap<Big> = small.restate_with(|v| v as i32);
 }

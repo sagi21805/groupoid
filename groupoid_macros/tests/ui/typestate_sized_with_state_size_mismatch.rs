@@ -1,7 +1,4 @@
-// Documents that `SizedWithState<N>` is only implemented for the `N` the
-// state's group actually pinned via `#[size(N)]` - asking for a different
-// `N` is an ordinary trait-bound failure, not something that silently
-// passes.
+// `SizedWithState<N>` exists only for the group's `#[size(N)]`.
 #![allow(dead_code)]
 use groupoid_macros::{blueprint, group, state, typestate};
 

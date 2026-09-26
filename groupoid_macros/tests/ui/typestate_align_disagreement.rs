@@ -1,15 +1,5 @@
-// The user-facing face of the alignment feature. `u64` and `[u8; 8]` are both
-// 8 bytes, so under a size-only rule these two states would look
-// interchangeable - but they are 8- and 1-aligned respectively, so the
-// containers holding them do not share a layout, and transmuting between them
-// would be undefined behaviour.
-//
-// The failure is reported against the `AlignedGroup` bound rather than
-// `TransmutableState`, which is deliberate: rustc's own
-// "but trait `AlignedGroup<1>` is implemented for it" names the alignment the
-// other state actually has, so the fix - `#[typestate(state = S, unsafe_transmute = true, align = 8)]`,
-// exercised in `tests/transmute_state_multi_field.rs` - is a matter of reading
-// off the larger of the two.
+// States of equal size but different alignment don't transmute without
+// `align = N`.
 #![allow(dead_code)]
 use groupoid::TransmuteState;
 use groupoid_macros::{blueprint, group, state, typestate};

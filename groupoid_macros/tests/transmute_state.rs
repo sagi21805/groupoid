@@ -1,10 +1,5 @@
-// `TransmuteState::transmute_state` (and its ref/mut forms) take only the
-// target *state*; the container they land in is
-// `TransmutableState::Target`, which `#[typestate]` only ever generates as
-// the *same* struct with the state swapped, and only between states whose
-// blueprint values share a `SizedGroup` size. These tests exercise the
-// accepted case; see `tests/ui/transmute_state_unrelated_types_rejected.
-// rs` for the rejected one.
+// `transmute_state` and its ref/mut forms between same-sized states of
+// one struct.
 use groupoid::TransmuteState;
 use groupoid_macros::{blueprint, group, state, typestate};
 

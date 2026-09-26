@@ -1,11 +1,11 @@
 error[E0589]: invalid alignment value: not a power of two
-  --> tests/ui/typestate_align_not_power_of_two.rs:22:57
+  --> tests/ui/typestate_align_not_power_of_two.rs:19:57
    |
-22 | #[typestate(state = S, unsafe_transmute = true, align = 3)]
+19 | #[typestate(state = S, unsafe_transmute = true, align = 3)]
    |                                                         ^
 
 error[E0589]: invalid alignment value: larger than 2^29
-  --> tests/ui/typestate_align_not_power_of_two.rs:27:57
+  --> tests/ui/typestate_align_not_power_of_two.rs:24:57
    |
-27 | #[typestate(state = S, unsafe_transmute = true, align = 1073741824)]
+24 | #[typestate(state = S, unsafe_transmute = true, align = 1073741824)]
    |                                                         ^^^^^^^^^^

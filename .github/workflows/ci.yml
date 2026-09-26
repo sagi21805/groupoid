@@ -50,6 +50,17 @@ jobs:
       - run: cargo build --workspace --all-features
       - run: cargo test --workspace --all-features
 
+  features:
+    name: Feature combinations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p groupoid --no-default-features
+      - run: cargo check -p groupoid --no-default-features --features core
+      - run: cargo check -p groupoid --no-default-features --features alloc
+
   msrv:
     name: MSRV
     runs-on: ubuntu-latest

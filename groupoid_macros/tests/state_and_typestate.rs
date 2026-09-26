@@ -107,10 +107,7 @@ impl std::fmt::Debug for DebugState {
 
 #[test]
 fn typestate_preserves_where_clause() {
-    // `DebugState` is both `State` and `Debug`, so this only compiles if
-    // the generated `impl WithState` reproduced the struct's original
-    // `S: std::fmt::Debug` bound correctly (on top of the `State` bound
-    // `#[typestate]` adds automatically).
+    // Compiles only if `impl WithState` keeps the `S: Debug` bound.
     assert_with_state::<WithWhere<DebugState>>();
 }
 
@@ -167,10 +164,7 @@ impl Sized4 for (Sized4State,) {
     type Value = u32;
 }
 
-// `Debug` sits alongside the blueprint trait `Sized4` here - previously
-// any bound other than the sole blueprint trait made `SizedWithState`
-// derivation bail out entirely, even though `S::Marker` still resolves
-// unambiguously (only `Sized4` has a `Marker` associated type).
+// Extra bounds next to the blueprint trait still derive `SizedWithState`.
 #[typestate(state = S, unsafe_transmute = true)]
 struct SizedWrap<S: Sized4 + std::fmt::Debug> {
     #[allow(dead_code)]

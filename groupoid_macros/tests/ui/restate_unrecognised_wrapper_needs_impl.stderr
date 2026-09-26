@@ -1,18 +1,28 @@
 error[E0277]: `Pair<u32>` is not a wrapper `#[typestate]` can restate
-  --> tests/ui/restate_unrecognised_wrapper_needs_impl.rs:40:33
+  --> tests/ui/restate_unrecognised_wrapper_needs_impl.rs:37:33
    |
-40 |     let _big: Wrap<Big> = small.restate_with(|v| v as i32);
+37 |     let _big: Wrap<Big> = small.restate_with(|v| v as i32);
    |                                 ^^^^^^^^^^^^ unsatisfied trait bound
    |
 help: the trait `Restate<u32, _>` is not implemented for `Pair<u32>`
-  --> tests/ui/restate_unrecognised_wrapper_needs_impl.rs:31:1
+  --> tests/ui/restate_unrecognised_wrapper_needs_impl.rs:28:1
    |
-31 | struct Pair<T>(T, T);
+28 | struct Pair<T>(T, T);
    | ^^^^^^^^^^^^^^
-   = note: `#[typestate]` sees through `Option`, arrays, `Box` and tuples; for any other wrapper around a projection, implement `groupoid::Restate` for it
+   = note: implement `groupoid::Restate<u32, _>` for it, or enable the `core`, `alloc` or `std` feature for built-in types
+   = help: the following other types implement trait `Restate<Src, Dst>`:
+             BTreeMap<K, A>
+             BTreeSet<A>
+             BinaryHeap<A>
+             Box<A>
+             Cell<A>
+             HashMap<K, A, H>
+             HashSet<A, H>
+             LinkedList<A>
+           and $N others
 note: required by a bound in `Wrap::<S>::restate_with`
-  --> tests/ui/restate_unrecognised_wrapper_needs_impl.rs:33:1
+  --> tests/ui/restate_unrecognised_wrapper_needs_impl.rs:30:1
    |
-33 | #[typestate(state = S)]
+30 | #[typestate(state = S)]
    | ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Wrap::<S>::restate_with`
    = note: this error originates in the attribute macro `typestate` (in Nightly builds, run with -Z macro-backtrace for more info)

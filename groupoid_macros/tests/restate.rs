@@ -1,15 +1,10 @@
-//! The by-value transition `#[typestate]` generates next to the in-place
-//! transmute: `restate_with`, where the caller converts each projection.
-//! It rebuilds the struct field by field, so it exists for every struct
-//! that projects through its state, including the shapes that disqualify
-//! the in-place path (`Option<S::Value>` and friends).
-//!
-//! The macro sees through `Option`, arrays, `Box` and tuples by itself;
-//! any other wrapper goes through a user `Restate` impl.
+//! `restate_with` rebuilds a struct for another state by value, through
+//! `Option`, arrays, `Box`, tuples and user `Restate` impls.
 
 use core::marker::PhantomData;
 use groupoid::Restate;
 use groupoid_macros::{blueprint, group, state, typestate};
+use std::collections::HashMap;
 
 #[blueprint]
 trait Meta {
@@ -33,7 +28,7 @@ impl Meta for (Big,) {
     type Value = i32;
 }
 
-// --- a wrapper the macro cannot see through, restated by hand -----------
+// --- a user wrapper with its own `Restate` impl ---
 
 #[derive(Debug, PartialEq)]
 struct Pair<T>(T, T);
@@ -58,6 +53,10 @@ struct Wrap<S: Meta> {
     pair: (S::Value, u8),
     nested: Option<[S::Value; 2]>,
     user: Pair<S::Value>,
+    user_nested: Pair<Option<S::Value>>,
+    list: Vec<S::Value>,
+    result: Result<S::Value, u8>,
+    map: HashMap<u8, S::Value>,
     tag: u8,
     _s: PhantomData<S>,
 }
@@ -71,6 +70,10 @@ fn sample() -> Wrap<Small> {
         pair: (6, 7),
         nested: Some([8, 9]),
         user: Pair(10, 11),
+        user_nested: Pair(Some(13), None),
+        list: vec![14, 15],
+        result: Ok(16),
+        map: HashMap::from([(0, 17)]),
         tag: 12,
         _s: PhantomData,
     }
@@ -84,6 +87,10 @@ fn assert_round_trip(big: Wrap<Big>) {
     assert_eq!(big.pair, (6, 7));
     assert_eq!(big.nested, Some([8, 9]));
     assert_eq!(big.user, Pair(10, 11));
+    assert_eq!(big.user_nested, Pair(Some(13), None));
+    assert_eq!(big.list, [14, 15]);
+    assert_eq!(big.result, Ok(16));
+    assert_eq!(big.map, HashMap::from([(0, 17)]));
     assert_eq!(big.tag, 12, "the state-independent field is moved as-is");
 }
 
@@ -96,9 +103,9 @@ fn restate_with_converts_every_projection_through_f() {
     });
     assert_round_trip(big);
     assert_eq!(
-        calls, 10,
+        calls, 15,
         "one call per projection: value, maybe, many x2, boxed, pair.0, \
-         nested x2, user x2"
+         nested x2, user x2, user_nested, list x2, result, map"
     );
 }
 
@@ -220,10 +227,7 @@ fn restate_with_ignores_alignment_altogether() {
     assert_eq!(bytes.tag, 9);
 }
 
-// --- without `unsafe_transmute = true` the struct's attributes are left
-// alone: no `repr(C)` is injected, and an explicit `repr(Rust)` - which
-// the in-place path would reject - is fine, since nothing reasons about
-// the layout ---
+// --- without `unsafe_transmute`, `repr` is left as written ---
 
 #[typestate(state = S)]
 #[repr(Rust)]

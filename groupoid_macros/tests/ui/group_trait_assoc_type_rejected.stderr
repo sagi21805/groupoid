@@ -1,10 +1,10 @@
 error[E0046]: not all trait items implemented, missing: `Extra`
-  --> tests/ui/group_trait_assoc_type_breaks_blanket_impl.rs:14:1
+  --> tests/ui/group_trait_assoc_type_breaks_blanket_impl.rs:11:1
    |
-14 | #[group_trait(by = Testing)]
+11 | #[group_trait(by = Testing)]
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing `Extra` in implementation
-15 | trait Foo {
-16 |     type Extra;
+12 | trait Foo {
+13 |     type Extra;
    |     ---------- `Extra` from trait
    |
    = note: this error originates in the attribute macro `group_trait` (in Nightly builds, run with -Z macro-backtrace for more info)

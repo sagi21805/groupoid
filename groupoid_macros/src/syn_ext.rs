@@ -6,8 +6,7 @@ use extend::ext;
 use proc_macro2::{TokenStream, TokenTree};
 use quote::{ToTokens, quote};
 use syn::{
-    Attribute, GenericArgument, Generics, Ident, Path, PathArguments,
-    Token, Type, TypeParam, TypePath,
+    Attribute, Generics, Ident, Path, Token, Type, TypeParam, TypePath,
     parse::{Parse, ParseStream},
 };
 
@@ -24,7 +23,7 @@ pub(crate) impl Type {
     }
 
     /// A fresh value of this type, when its spelling shows it to be a ZST:
-    /// `()`, `PhantomData<..>` or `PhantomPinned`.
+    /// `()` or `PhantomData<..>`.
     fn zst_value(&self) -> Option<TokenStream> {
         let path = match self.peeled() {
             Type::Tuple(tuple) => {
@@ -43,7 +42,7 @@ pub(crate) impl Type {
         }
     }
 
-    /// A type known to be a ZST from its spelling
+    /// Whether this type's spelling shows it to be a ZST.
     fn is_zst(&self) -> bool {
         self.zst_value().is_some()
     }
@@ -67,12 +66,10 @@ pub(crate) impl Path {
     /// bare (`Option`), through the module (`option::Option`) or through a
     /// root crate (`core::option::Option`).
     fn is_std_item(&self, module: &str, item: &str) -> bool {
-        let segments: Vec<String> =
-            self.segments.iter().map(|s| s.ident.to_string()).collect();
-        let segments: Vec<&str> =
-            segments.iter().map(String::as_str).collect();
+        let idents: Vec<&Ident> =
+            self.segments.iter().map(|s| &s.ident).collect();
 
-        let Some((last, prefix)) = segments.split_last() else {
+        let Some((last, prefix)) = idents.split_last() else {
             return false;
         };
         *last == item
@@ -80,28 +77,11 @@ pub(crate) impl Path {
                 [] => true,
                 [m] => *m == module,
                 [root, m] => {
-                    matches!(*root, "std" | "core" | "alloc")
+                    (*root == "std" || *root == "core" || *root == "alloc")
                         && *m == module
                 }
                 _ => false,
             }
-    }
-
-    /// The `T` of `item<T>`, when this path is std's `item` (see
-    /// `is_std_item`) applied to exactly one type argument.
-    fn std_item_arg(&self, module: &str, item: &str) -> Option<&Type> {
-        if !self.is_std_item(module, item) {
-            return None;
-        }
-        let PathArguments::AngleBracketed(args) =
-            &self.segments.last()?.arguments
-        else {
-            return None;
-        };
-        match args.args.iter().collect::<Vec<_>>().as_slice() {
-            [GenericArgument::Type(ty)] => Some(ty),
-            _ => None,
-        }
     }
 }
 
@@ -147,8 +127,7 @@ pub(crate) impl<T: Parse> Option<T> {
     }
 }
 
-/// The token scans behind the `Type` methods of the same names, recursing
-/// into every group.
+/// Token scans behind the `Type` methods of the same names.
 #[ext]
 impl TokenStream {
     /// These tokens with every `from` not preceded by `:` replaced by

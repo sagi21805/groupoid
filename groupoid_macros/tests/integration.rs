@@ -23,7 +23,7 @@ impl Testing for (StateA, StateB) {
 
 #[typestate(state = T)]
 struct Example<T: Testing> {
-    meta: T::Meta,
+    _meta: T::Meta,
 }
 
 #[groupoid_macros::group_trait(by = Testing)]
@@ -39,7 +39,7 @@ impl Testing for (StateC, StateD) {
 }
 
 #[groupoid_macros::group_impl(TestGroup)]
-impl<S: Testing + groupoid::State> A for Example<S> {
+impl<S: Testing> A for Example<S> {
     fn a(&self) {
         eprintln!("TestGroup implementation!");
     }
@@ -50,7 +50,7 @@ impl<S: Testing + groupoid::State> A for Example<S> {
 }
 
 #[groupoid_macros::group_impl(AnotherGroup)]
-impl<S: Testing + groupoid::State> A for Example<S> {
+impl<S: Testing> A for Example<S> {
     fn a(&self) {
         eprintln!("AnotherGroup implementation!");
     }
@@ -62,9 +62,9 @@ impl<S: Testing + groupoid::State> A for Example<S> {
 
 #[test]
 fn dispatches_to_group_impl() {
-    let example: Example<StateA> = Example { meta: 3 };
+    let example: Example<StateA> = Example { _meta: 3 };
     example.b();
     example.a();
-    let example: Example<StateD> = Example { meta: 3 };
+    let example: Example<StateD> = Example { _meta: 3 };
     example.b();
 }

@@ -1,18 +1,5 @@
-//! The payoff for pinning alignment alongside size: a `#[typestate]`
-//! struct with more than one field is now transmutable between states, as
-//! long as every field is a bare projection, a `PhantomData`, or a type
-//! that does not mention the state.
-//!
-//! Previously any second field disqualified the struct outright, because
-//! `SizedGroup<N>` pins only the projection's *size*, and a state value's
-//! alignment leaks into the container's - shifting later fields and
-//! changing the tail padding. With both halves pinned, `repr(C)` lays the
-//! two states out identically.
-//!
-//! See `tests/ui/typestate_align_disagreement.rs` for the case this still
-//! rejects, and
-//! `tests/ui/typestate_sized_with_state_not_derived_for_wrapped_projection.
-//! rs` for the field shapes that disqualify a struct.
+//! Structs with several fields transmute between states when every field
+//! is a bare projection, a ZST, or independent of the state.
 
 use core::marker::PhantomData;
 use groupoid::TransmuteState;
@@ -142,10 +129,7 @@ impl Meta for (Bytes,) {
     type Value = [u8; 8];
 }
 
-// `u64` is 8-aligned and `[u8; 8]` is 1-aligned, so without `align = 8`
-// these two states are *not* interchangeable and the derivation correctly
-// refuses them. Forcing the container's alignment takes the state's own
-// alignment out of the layout, which is what makes the pair transmutable.
+// `u64` and `[u8; 8]` differ in alignment, so `align = 8` pins it.
 #[typestate(state = S, unsafe_transmute = true, align = 8)]
 struct Forced<S: Meta> {
     value: S::Value,

@@ -1,5 +1,0 @@
-error[E0407]: method `f` is not a member of trait `TestingGroupMarker`
-  --> tests/ui/blueprint_group_overridden_fn_breaks_marker_impl.rs:24:5
-   |
-24 |     fn f(&self) {}
-   |     ^^^^^^^^^^^^^^ not a member of trait `TestingGroupMarker`

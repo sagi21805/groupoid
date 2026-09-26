@@ -1,5 +1,5 @@
 error[E0080]: evaluation panicked: associated type `Meta` is `u64`, which is not 4 byte(s)
-  --> tests/ui/group_size_mismatch.rs:16:1
+  --> tests/ui/group_size_mismatch.rs:13:1
    |
-16 | #[group(G)]
+13 | #[group(G)]
    | ^^^^^^^^^^^ evaluation of `_` failed here

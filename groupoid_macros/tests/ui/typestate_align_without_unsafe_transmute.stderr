@@ -1,11 +1,11 @@
-error: `align` only applies with `unsafe_transmute = true`. The by-value `restate_with` path never looks at alignment
-  --> tests/ui/typestate_align_without_unsafe_transmute.rs:22:32
+error: `align` requires `unsafe_transmute = true`
+  --> tests/ui/typestate_align_without_unsafe_transmute.rs:19:32
    |
-22 | #[typestate(state = S, align = 8)]
+19 | #[typestate(state = S, align = 8)]
    |                                ^
 
-error: `align` only applies with `unsafe_transmute = true`. The by-value `restate_with` path never looks at alignment
-  --> tests/ui/typestate_align_without_unsafe_transmute.rs:27:58
+error: `align` requires `unsafe_transmute = true`
+  --> tests/ui/typestate_align_without_unsafe_transmute.rs:24:58
    |
-27 | #[typestate(state = S, unsafe_transmute = false, align = 8)]
+24 | #[typestate(state = S, unsafe_transmute = false, align = 8)]
    |                                                          ^

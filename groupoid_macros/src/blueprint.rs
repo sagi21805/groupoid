@@ -1,5 +1,5 @@
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::quote;
 use syn::{ItemTrait, TraitItem, TraitItemType, parse_quote};
 
 pub struct Blueprint<'ast> {
@@ -11,25 +11,24 @@ impl<'ast> Blueprint<'ast> {
         Blueprint { inner }
     }
 
+    /// The trait with a `Marker` associated type and a `State`
+    /// supertrait, followed by its `{Trait}GroupMarker` trait.
     pub fn create_group_marker(&self) -> syn::Result<TokenStream> {
-        let trait_ident = &self.inner.ident;
-        let marker_name = format_ident!("{}GroupMarker", trait_ident);
+        let vis = &self.inner.vis;
+        let marker_name =
+            crate::naming::group_marker_ident(&self.inner.ident);
         let type_definitions: Vec<&TraitItemType> = self
             .inner
             .items
             .iter()
-            .filter_map(|i| {
-                if let TraitItem::Type(t) = i {
-                    Some(t)
-                } else {
-                    None
-                }
+            .filter_map(|item| match item {
+                TraitItem::Type(ty) => Some(ty),
+                _ => None,
             })
             .collect();
 
-        // Exactly one associated type keeps `#[group]`'s `#[size(N)]` (and
-        // the `::groupoid::SizedGroup<SIZE>` it implements) unambiguous
-        // about which type it's describing, with no discriminator needed.
+        // One associated type keeps `#[size(N)]` in `#[group]`
+        // unambiguous.
         let [type_definition] = *type_definitions.as_slice() else {
             return Err(syn::Error::new_spanned(
                 &self.inner.ident,
@@ -43,18 +42,15 @@ impl<'ast> Blueprint<'ast> {
         let assoc_ident = &type_definition.ident;
 
         let mut original = self.inner.clone();
-
-        let marker_type = parse_quote! {
+        original.items.push(parse_quote! {
             type Marker: #marker_name<#assoc_ident = Self::#assoc_ident>;
-        };
-
-        original.items.push(TraitItem::Type(marker_type));
+        });
+        original.supertraits.push(parse_quote!(::groupoid::State));
 
         Ok(quote! {
-
             #original
 
-            trait #marker_name {
+            #vis trait #marker_name {
                 #type_definition
             }
         })

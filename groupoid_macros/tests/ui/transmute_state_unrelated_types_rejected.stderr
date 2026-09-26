@@ -1,9 +1,9 @@
 error[E0308]: mismatched types
-  --> tests/ui/transmute_state_unrelated_types_rejected.rs:45:14
+  --> tests/ui/transmute_state_unrelated_types_rejected.rs:40:14
    |
-44 | fn cast(w: WrapA<A>) -> WrapB<A> {
+39 | fn cast(w: WrapA<A>) -> WrapB<A> {
    |                         -------- expected `WrapB<A>` because of return type
-45 |     unsafe { w.transmute_state::<A>() }
+40 |     unsafe { w.transmute_state::<A>() }
    |              ^^^^^^^^^^^^^^^^^^^^^^^^ expected `WrapB<A>`, found `WrapA<A>`
    |
    = note: expected struct `WrapB<A>`
