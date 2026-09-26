@@ -7,8 +7,10 @@ pr_name = "chore: release{% if package %} {{ package }}{% endif %}"
 
 [[package]]
 name = "groupoid"
-changelog_path = "./groupoid/CHANGELOG.md"
+changelog_path = "./CHANGELOG.md"
+changelog_include = ["groupoid_macros"]
 
 [[package]]
 name = "groupoid_macros"
-changelog_path = "./groupoid_macros/CHANGELOG.md"
+changelog_update = false
+git_release_enable = false
