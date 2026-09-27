@@ -20,7 +20,7 @@ pub use layout::{
     SameLayout, SameSize, TypeAlignment, TypeLayout, TypeSize,
     UnpinnedTypeAlignment, UnpinnedTypeLayout, UnpinnedTypeSize,
 };
-pub use morph::Morph;
+pub use morph::{Morph, MorphLeaf};
 pub use transmute::{Isomorphic, TransmutableState};
 
 /// A type that represents a state of an object.

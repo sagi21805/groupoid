@@ -233,3 +233,16 @@ mod std_impls {
         }
     }
 }
+
+/// Converts one projection for `morph`, through the morpher `M` from
+/// state `Src` to `Dst`.
+///
+/// `Self` is the key type `#[template]` generates per associated type, so
+/// the template's crate can implement it for every `M`.
+#[doc(hidden)]
+pub trait MorphLeaf<M, Src, Dst> {
+    type In;
+    type Out;
+
+    fn morph_leaf(m: &mut M, value: Self::In) -> Self::Out;
+}

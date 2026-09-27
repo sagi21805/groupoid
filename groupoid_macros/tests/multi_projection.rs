@@ -157,3 +157,74 @@ fn group_impl_sees_every_projection_as_its_concrete_type() {
         ("1 2 3".into(), "1.5 -2 -3".into())
     );
 }
+
+#[typestate(state = S)]
+struct Single<S: Meta> {
+    loose: S::Loose,
+}
+
+/// Counts every value it converts, across every struct it morphs.
+struct Calibrate {
+    calls: usize,
+}
+
+impl MetaMorph<StateA, StateB> for Calibrate {
+    fn type1(&mut self, value: u32) -> f32 {
+        self.calls += 1;
+        value as f32
+    }
+
+    fn type2(&mut self, value: u64) -> i64 {
+        self.calls += 1;
+        value as i64
+    }
+
+    fn type3(&mut self, value: u16) -> i16 {
+        self.calls += 1;
+        value as i16
+    }
+
+    fn loose(&mut self, value: String) -> Vec<u8> {
+        self.calls += 1;
+        value.into_bytes()
+    }
+}
+
+#[test]
+fn one_morpher_converts_several_structs() {
+    let mut calibrate = Calibrate { calls: 0 };
+
+    let triple: Triple<StateB> =
+        Triple::<StateA> { a: 1, b: 2, c: 3 }.morph(&mut calibrate);
+    let mixed: Mixed<StateB> = Mixed::<StateA> {
+        a: 4,
+        loose: "hi".to_owned(),
+    }
+    .morph(&mut calibrate);
+
+    assert_eq!((triple.a, triple.b, triple.c), (1.0, 2, 3));
+    assert_eq!((mixed.a, mixed.loose), (4.0, b"hi".to_vec()));
+    assert_eq!(calibrate.calls, 5);
+}
+
+#[test]
+fn morph_converts_a_single_projection() {
+    let single = Single::<StateA> {
+        loose: "ok".to_owned(),
+    };
+
+    let single: Single<StateB> = single.morph(Calibrate { calls: 0 });
+
+    assert_eq!(single.loose, b"ok".to_vec());
+}
+
+#[test]
+fn morph_converts_a_tuple_inside_a_wrapper() {
+    let pairs = Pairs::<StateA> {
+        pairs: vec![(1, 2)],
+    };
+
+    let pairs: Pairs<StateB> = pairs.morph(Calibrate { calls: 0 });
+
+    assert_eq!(pairs.pairs, vec![(1.0, 2)]);
+}
