@@ -59,10 +59,10 @@ pub trait Pinned<T> {}
 /// Holds when `Self` and `Other` are pinned layouts of the same size.
 /// `#[typestate]` requires it under `align = N`.
 #[doc(hidden)]
-#[diagnostic::on_unimplemented(message = "convert with `morph_with` \
-                                          instead of transmuting: \
-                                          `{Other}` and `{Self}` differ \
-                                          in size")]
+#[diagnostic::on_unimplemented(message = "convert with `morph_with` or \
+                                          `morph` instead of \
+                                          transmuting: `{Other}` and \
+                                          `{Self}` differ in size")]
 pub trait SameSize<Other> {}
 
 impl<G1, T1, G2, T2, const SIZE: usize, const A1: usize, const A2: usize>
@@ -80,10 +80,10 @@ impl<G: Pinned<T>, T, Other> SameSize<Other> for Unpinned<G, T> {}
 /// Holds when `Self` and `Other` are pinned layouts of the same size and
 /// alignment. `#[typestate]` requires it without `align = N`.
 #[doc(hidden)]
-#[diagnostic::on_unimplemented(message = "convert with `morph_with` \
-                                          instead of transmuting: \
-                                          `{Other}` and `{Self}` differ \
-                                          in size")]
+#[diagnostic::on_unimplemented(message = "convert with `morph_with` or \
+                                          `morph` instead of \
+                                          transmuting: `{Other}` and \
+                                          `{Self}` differ in size")]
 pub trait SameLayout<Other> {}
 
 impl<G1, T1, G2, T2, const SIZE: usize, const A1: usize, const A2: usize>
@@ -139,7 +139,8 @@ pub trait MorphLeaf<M, Src, Dst> {
                `{Self}` to transmute it into state `{To}`",
     note = "both states' groups need the same `#[size(N)]`, and the \
             target must be the same struct",
-    note = "or convert by value with `morph_with`, which needs neither"
+    note = "or convert by value with `morph_with` or `morph`, which need \
+            neither"
 )]
 pub unsafe trait TransmutableState<To: State>:
     WithState + Sized

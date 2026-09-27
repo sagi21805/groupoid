@@ -1,4 +1,4 @@
-error[E0277]: convert with `morph_with` instead of transmuting: `groupoid::Layout<SmallGroup, u8, 1, 1>` and `groupoid::Layout<BigGroup, u64, 8, 8>` differ in size
+error[E0277]: convert with `morph_with` or `morph` instead of transmuting: `groupoid::Layout<SmallGroup, u8, 1, 1>` and `groupoid::Layout<BigGroup, u64, 8, 8>` differ in size
   --> tests/ui/typestate_transmute_size_mismatch.rs:35:31
    |
 35 |     let _big = unsafe { small.transmute_state::<Big>() };
