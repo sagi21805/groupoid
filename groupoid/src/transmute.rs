@@ -81,7 +81,8 @@ pub unsafe trait TransmutableState<To: State>:
     type Target: WithState<State = To>;
 
     /// Compile-time check that `Self` and [`Target`](Self::Target) share
-    /// a size and alignment.
+    /// a size and alignment. `#[typestate]` overrides it to also compare
+    /// every field's offset.
     const LAYOUT_CHECK: () = {
         assert!(
             core::mem::size_of::<Self>()
