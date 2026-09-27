@@ -1,0 +1,5 @@
+error: split this type into one part per associated type of `S`, such as a tuple `(Wrapper<S::A>, Wrapper<S::B>)`: `morph_with` converts it through one projection
+  --> tests/ui/morph_opaque_two_projections.rs:15:14
+   |
+15 |     convert: fn(S::Type1) -> S::Type2,
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^
