@@ -19,6 +19,30 @@ pub fn layout_assoc_ident(assoc: &Ident) -> Ident {
     format_ident!("__GroupoidLayout{}", assoc)
 }
 
+/// The trait `#[template]` generates for reusable conversions between two
+/// states, e.g. `Meta` -> `MetaMorph`.
+pub fn morph_trait_ident(trait_ident: &Ident) -> Ident {
+    format_ident!("{}Morph", trait_ident)
+}
+
+/// The hidden key type `#[template]` generates for its associated type
+/// `assoc`, e.g. `Meta`, `Value` -> `__MetaKeyValue`.
+pub fn key_struct_ident(trait_ident: &Ident, assoc: &Ident) -> Ident {
+    format_ident!("__{}Key{}", trait_ident, assoc)
+}
+
+/// The hidden supertrait that maps every state to the key types, e.g.
+/// `Meta` -> `__MetaKeys`.
+pub fn keys_trait_ident(trait_ident: &Ident) -> Ident {
+    format_ident!("__{}Keys", trait_ident)
+}
+
+/// The associated type of the keys trait naming `assoc`'s key type, e.g.
+/// `Value` -> `__GroupoidKeyValue`.
+pub fn key_assoc_ident(assoc: &Ident) -> Ident {
+    format_ident!("__GroupoidKey{}", assoc)
+}
+
 /// The group parameter of the `{Trait}GroupMember` trait.
 pub fn group_param_ident() -> Ident {
     format_ident!("__GroupoidGroup")
@@ -60,8 +84,9 @@ pub fn morph_lifetime() -> Lifetime {
     Lifetime::new("'f", Span::call_site())
 }
 
-/// The field (and later method) converting associated type `assoc`, in
-/// snake case, e.g. `MyValue` -> `my_value` and `Type` -> `r#type`.
+/// The `{Struct}Morph` field and `{Template}Morph` method converting
+/// associated type `assoc`, in snake case, e.g. `MyValue` -> `my_value`
+/// and `Type` -> `r#type`.
 pub fn morph_method_ident(assoc: &Ident) -> Ident {
     let snake = snake_case(&assoc.to_string());
 
@@ -78,6 +103,16 @@ pub fn morph_method_ident(assoc: &Ident) -> Ident {
 /// `Value` -> `__groupoid_value`.
 pub fn morph_binding_ident(assoc: &Ident) -> Ident {
     format_ident!("__groupoid_{}", snake_case(&assoc.to_string()))
+}
+
+/// The morpher type parameter of `morph`.
+pub fn morpher_param_ident() -> Ident {
+    format_ident!("__GroupoidMorpher")
+}
+
+/// The morpher parameter of `morph`.
+pub fn morpher_ident() -> Ident {
+    format_ident!("m")
 }
 
 /// The conversion closure parameter of `morph_with`.

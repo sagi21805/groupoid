@@ -1,0 +1,28 @@
+error[E0277]: implement `MetaMorph<StateA, StateC>` for `Widen` to morph from `StateA` to `StateC`
+  --> tests/ui/morph_missing_template_morph_impl.rs:47:34
+   |
+47 |     let _ = a.morph::<StateC, _>(Widen);
+   |               -----              ^^^^^ unsatisfied trait bound
+   |               |
+   |               required by a bound introduced by this call
+   |
+help: the trait `MetaMorph<StateA, StateC>` is not implemented for `Widen`
+      but trait `MetaMorph<StateA, StateB>` is implemented for it
+  --> tests/ui/morph_missing_template_morph_impl.rs:39:1
+   |
+39 | impl MetaMorph<StateA, StateB> for Widen {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `StateB`, found `StateC`
+note: required for `__MetaKeyValue` to implement `groupoid::MorphLeaf<Widen, StateA, StateC>`
+  --> tests/ui/morph_missing_template_morph_impl.rs:5:1
+   |
+ 5 | #[template]
+   | ^^^^^^^^^^^ unsatisfied trait bound introduced here
+ 6 | trait Meta {
+   |       ^^^^
+note: required by a bound in `Wrap::<S>::morph`
+  --> tests/ui/morph_missing_template_morph_impl.rs:32:1
+   |
+32 | #[typestate(state = S)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Wrap::<S>::morph`
+   = note: this error originates in the attribute macro `template` which comes from the expansion of the attribute macro `typestate` (in Nightly builds, run with -Z macro-backtrace for more info)
