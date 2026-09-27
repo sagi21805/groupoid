@@ -138,6 +138,93 @@ that returns the wrong sample type is a type error.
 `Frame<Sampled>` and `calibrate` only on `Frame<Filtered>`, so
 `frame.calibrate()` on a raw frame doesn't compile.
 
+### Several associated types
+
+A template can declare more than one associated type. `#[template]` then
+also generates `UnitsMorph<Src, Dst>`, with one method per associated
+type. Implement it once, on any type, and `morph` applies it to every
+struct that uses the template:
+
+```rust
+use groupoid::{group, state, template, typestate};
+
+#[template]
+trait Units {
+    type Temp;
+    type Time;
+}
+
+#[state]
+struct Raw;
+#[state]
+struct Si;
+
+#[group(Adc)]
+impl Units for (Raw,) {
+    type Temp = u16;
+    type Time = u32;
+}
+
+#[group(Metric)]
+impl Units for (Si,) {
+    type Temp = f32;
+    type Time = f64;
+}
+
+#[typestate]
+struct Sample<S: Units> {
+    temp: S::Temp,
+    at: S::Time,
+}
+
+#[typestate]
+struct Log<S: Units> {
+    readings: Vec<(S::Time, S::Temp)>,
+}
+
+struct Calibration {
+    tick_hz: f64,
+}
+
+impl UnitsMorph<Raw, Si> for Calibration {
+    fn temp(&mut self, counts: u16) -> f32 {
+        f32::from(counts) / 10.0 - 40.0
+    }
+
+    fn time(&mut self, ticks: u32) -> f64 {
+        f64::from(ticks) / self.tick_hz
+    }
+}
+
+fn main() {
+    let mut calibration = Calibration { tick_hz: 1000.0 };
+
+    let sample = Sample::<Raw> { temp: 650, at: 1500 };
+    let sample: Sample<Si> = sample.morph(&mut calibration);
+    assert_eq!((sample.temp, sample.at), (25.0, 1.5));
+
+    let log = Log::<Raw> {
+        readings: vec![(0, 400), (2000, 650)],
+    };
+    let log: Log<Si> = log.morph(&mut calibration);
+    assert_eq!(log.readings, vec![(0.0, 0.0), (2.0, 25.0)]);
+
+    let sample = Sample::<Raw> { temp: 650, at: 1500 };
+    let sample: Sample<Si> = sample.morph_with(SampleMorph {
+        temp: &mut |counts| f32::from(counts),
+        time: &mut |ticks| f64::from(ticks),
+    });
+    assert_eq!((sample.temp, sample.at), (650.0, 1500.0));
+}
+```
+
+`&mut calibration` lends the morpher, so one `Calibration` converts both
+structs. In `Log`, each tuple in the `Vec` sends its time and its
+temperature to the matching method. For a one-off conversion,
+`morph_with` takes a `SampleMorph` with one closure per associated type
+that `Sample` uses. Each associated type can carry its own `#[size(N)]`,
+and `unsafe_transmute = true` needs it only on the types the struct uses.
+
 ### Zero-copy transitions
 
 When every state-dependent field is a bare `S::Addr`, a transition can

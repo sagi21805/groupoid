@@ -35,9 +35,9 @@ impl<G, T> TypeLayout for UnpinnedTypeLayout<G, T> {
 layout_property! {
     "size": TypeSize, PinnedTypeSize<SIZE>, UnpinnedTypeSize,
     #[diagnostic::on_unimplemented(message = "convert with `morph_with` \
-                                              instead of transmuting: \
-                                              `{Other}` and `{Self}` \
-                                              differ in size")]
+                                              or `morph` instead of \
+                                              transmuting: `{Other}` and \
+                                              `{Self}` differ in size")]
     SameSize
 }
 

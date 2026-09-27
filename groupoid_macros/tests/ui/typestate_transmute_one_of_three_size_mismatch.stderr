@@ -1,4 +1,4 @@
-error[E0277]: convert with `morph_with` instead of transmuting: `groupoid::PinnedTypeSize<AGroup, u64, 8>` and `groupoid::PinnedTypeSize<BGroup, u32, 4>` differ in size
+error[E0277]: convert with `morph_with` or `morph` instead of transmuting: `groupoid::PinnedTypeSize<AGroup, u64, 8>` and `groupoid::PinnedTypeSize<BGroup, u32, 4>` differ in size
   --> tests/ui/typestate_transmute_one_of_three_size_mismatch.rs:47:24
    |
 47 |     let _ = unsafe { a.transmute_state::<StateB>() };

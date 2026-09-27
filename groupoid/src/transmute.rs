@@ -72,7 +72,8 @@ impl<T: WithState> Isomorphic for T {}
                `{Self}` to transmute it into state `{To}`",
     note = "both states' groups need the same `#[size(N)]`, and the \
             target must be the same struct",
-    note = "or convert by value with `morph_with`, which needs neither"
+    note = "or convert by value with `morph_with` or `morph`, which need \
+            neither"
 )]
 pub unsafe trait TransmutableState<To: State>:
     WithState + Sized

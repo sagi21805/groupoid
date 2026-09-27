@@ -19,7 +19,10 @@ mod syn_ext;
 mod template;
 mod typestate;
 
-/// Declares a trait whose one associated type groups states.
+/// Declares a trait whose associated types group states.
+///
+/// Generates `{Trait}Morph<Src, Dst>`, one method per associated type,
+/// to pass to `morph`.
 ///
 /// ```
 /// use groupoid::{group, state, template};
@@ -27,14 +30,36 @@ mod typestate;
 /// #[template]
 /// trait Meta {
 ///     type Value;
+///     type Label;
 /// }
 ///
 /// #[state]
 /// struct Small;
+/// #[state]
+/// struct Big;
 ///
 /// #[group(Numbers)]
 /// impl Meta for (Small,) {
 ///     type Value = u32;
+///     type Label = &'static str;
+/// }
+///
+/// #[group(Wide)]
+/// impl Meta for (Big,) {
+///     type Value = u64;
+///     type Label = String;
+/// }
+///
+/// struct Widen;
+///
+/// impl MetaMorph<Small, Big> for Widen {
+///     fn value(&mut self, value: u32) -> u64 {
+///         value.into()
+///     }
+///
+///     fn label(&mut self, label: &'static str) -> String {
+///         label.to_uppercase()
+///     }
 /// }
 /// # fn main() {}
 /// ```
@@ -49,7 +74,7 @@ pub fn template(_attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 /// Declares a group and implements a `#[template]` trait for its states.
-/// `#[size(N)]` on the associated type allows transmuting between them.
+/// `#[size(N)]` on an associated type allows transmuting between them.
 ///
 /// ```
 /// use groupoid::{group, state, template};
@@ -100,6 +125,9 @@ pub fn group_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Marks a generic struct as a typestate container. Options:
 /// `state = S`, `unsafe_transmute = true`, `align = N`.
+///
+/// Generates `morph_with`, taking a closure per projection, and `morph`,
+/// taking a `{Template}Morph`.
 ///
 /// ```
 /// use groupoid::{group, state, template, typestate};
