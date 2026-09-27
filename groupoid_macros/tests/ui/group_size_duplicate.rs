@@ -1,6 +1,6 @@
 // Documents that stacking more than one `#[size(N)]` on the same associated
 // type inside a #[group] impl is rejected at macro-expansion time, rather
-// than silently emitting two conflicting `SizedGroup<N>` impls.
+// than silently picking one of two conflicting layouts.
 #![allow(dead_code)]
 use groupoid_macros::{group, state, template};
 

@@ -28,7 +28,7 @@ pub(crate) struct TypeState {
     ///
     /// `Wrap<S> -> Wrap<__GroupoidTargetState>`
     target_ty: TokenStream,
-    /// Whether `SizedWithState` and `TransmutableState` are derived too.
+    /// Whether `TransmutableState` is derived too.
     transmute: Transmute,
     /// The one associated type the fields project through the state
     /// (`Value` in `S::Value`), if any.
@@ -86,8 +86,10 @@ impl TypeState {
     pub(crate) fn generate_typestate_impls(&self) -> TokenStream {
         let item_struct = &self.item_struct;
         let with_state_impl = self.with_state_impl();
-        let transmute_impls = match &self.transmute {
-            Transmute::On(align) => Some(self.transmute_impls(align)),
+        let transmutable_state_impl = match &self.transmute {
+            Transmute::On(align) => {
+                Some(self.transmutable_state_impl(align))
+            }
             Transmute::Off => None,
         };
         let morph_impl = self
@@ -100,7 +102,7 @@ impl TypeState {
 
             #with_state_impl
 
-            #transmute_impls
+            #transmutable_state_impl
 
             #morph_impl
         }
@@ -119,40 +121,9 @@ impl TypeState {
         }
     }
 
-    /// `SizedWithState<N, A>` and `TransmutableState<S2, N, A>`, with `A`
-    /// either the state's own alignment or the one forced by `align = A`.
-    fn transmute_impls(&self, align: &Alignment) -> TokenStream {
-        let sized_with_state_impl = self.sized_with_state_impl(align);
-        let transmutable_state_impl = self.transmutable_state_impl(align);
-
-        quote! {
-            #sized_with_state_impl
-
-            #transmutable_state_impl
-        }
-    }
-
-    /// `SizedWithState<N, A>` for the struct, pinned by the state's
-    /// `#[size(N)]` template type.
-    fn sized_with_state_impl(&self, align: &Alignment) -> TokenStream {
-        let struct_ident = &self.item_struct.ident;
-        let (_, ty_generics, _) =
-            self.item_struct.generics.split_for_impl();
-
-        let mut generics = self.item_struct.generics.clone();
-        let align_arg =
-            generics.pin_states_to_shared_layout(&[&self.state], align);
-        let (impl_generics, _, where_clause) = generics.split_for_impl();
-
-        quote! {
-            impl #impl_generics ::groupoid::SizedWithState<__GROUPOID_SIZE, #align_arg>
-                for #struct_ident #ty_generics #where_clause {}
-        }
-    }
-
-    /// `TransmutableState<S2, N, A>` for `Struct<S>` with
-    /// `Target = Struct<S2>`, generic over every `S2` with `S`'s bounds
-    /// and layout.
+    /// `TransmutableState<S2>` for `Struct<S>` with `Target = Struct<S2>`,
+    /// for every `S2` with `S`'s bounds whose projections match `S`'s
+    /// layout.
     fn transmutable_state_impl(&self, align: &Alignment) -> TokenStream {
         let struct_ident = &self.item_struct.ident;
         let target_state = &self.target_state.ident;
@@ -164,22 +135,49 @@ impl TypeState {
         generics
             .params
             .push(GenericParam::Type(self.target_state.clone()));
-        let align_arg = generics.pin_states_to_shared_layout(
-            &[&self.state, target_state],
-            align,
+        generics.make_where_clause().predicates.extend(
+            self.projection.iter().map(|projection| {
+                self.layout_predicate(projection, align)
+            }),
         );
         let (impl_generics, _, where_clause) = generics.split_for_impl();
 
         quote! {
             // SAFETY: `Self` and `Target` differ only in the state, every
-            // field is a projection, a ZST or state-independent, and both
-            // projections share size and alignment, so `repr(C)` lays
-            // them out identically.
-            unsafe impl #impl_generics ::groupoid::TransmutableState<
-                #target_state, __GROUPOID_SIZE, #align_arg
-            > for #struct_ident #ty_generics #where_clause {
+            // field is a projection, a ZST or state-independent, and the
+            // where-clause gives every projection one size and alignment
+            // in both states, so `repr(C)` lays them out identically.
+            unsafe impl #impl_generics ::groupoid::TransmutableState<#target_state>
+                for #struct_ident #ty_generics #where_clause
+            {
                 type Target = #target_ty;
             }
+        }
+    }
+
+    /// Requires `projection` to have one size in both states, and one
+    /// alignment unless `align = N` forces it.
+    ///
+    /// `S2::__GroupoidLayoutP: SameLayout<S::__GroupoidLayoutP>`
+    ///
+    /// The target state goes on the left: method lookup checks
+    /// `transmute_state`'s bounds before the turbofish names `S2`, and
+    /// fails with no custom message on a bound it can already decide.
+    fn layout_predicate(
+        &self,
+        projection: &Ident,
+        align: &Alignment,
+    ) -> WherePredicate {
+        let state = &self.state;
+        let target_state = &self.target_state.ident;
+        let layout = crate::naming::layout_assoc_ident(projection);
+        let check = match align {
+            Alignment::Inferred => quote!(SameLayout),
+            Alignment::Forced(_) => quote!(SameSize),
+        };
+
+        parse_quote! {
+            #target_state::#layout: ::groupoid::#check<#state::#layout>
         }
     }
 
@@ -335,8 +333,8 @@ impl Parse for TypeStateArgs {
 pub(crate) enum Transmute {
     /// Default, only `WithState` and `morph_with`.
     Off,
-    /// `unsafe_transmute = true`, additionally implements `SizedWithState`
-    /// and `TransmutableState`.
+    /// `unsafe_transmute = true`, additionally implements
+    /// `TransmutableState`.
     On(Alignment),
 }
 
@@ -512,39 +510,6 @@ impl ItemStruct {
         });
 
         quote!(#struct_ident<#(#args),*>)
-    }
-}
-
-#[ext]
-impl Generics {
-    /// Requires all `states` to share one size via `SizedGroup`, and one
-    /// alignment via `AlignedGroup` unless it is forced. Returns the
-    /// alignment to use.
-    fn pin_states_to_shared_layout(
-        &mut self,
-        states: &[&Ident],
-        align: &Alignment,
-    ) -> TokenStream {
-        self.params.push(parse_quote!(const __GROUPOID_SIZE: usize));
-        self.make_where_clause()
-            .predicates
-            .extend(states.iter().map(|state| -> WherePredicate {
-                parse_quote!(#state::Marker: ::groupoid::SizedGroup<__GROUPOID_SIZE>)
-            }));
-
-        match align {
-            Alignment::Forced(n) => quote!(#n),
-            Alignment::Inferred => {
-                self.params
-                    .push(parse_quote!(const __GROUPOID_ALIGN: usize));
-                self.make_where_clause()
-                    .predicates
-                    .extend(states.iter().map(|state| -> WherePredicate {
-                        parse_quote!(#state::Marker: ::groupoid::AlignedGroup<__GROUPOID_ALIGN>)
-                    }));
-                quote!(__GROUPOID_ALIGN)
-            }
-        }
     }
 }
 

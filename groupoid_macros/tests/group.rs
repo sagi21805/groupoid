@@ -5,6 +5,8 @@ use groupoid_macros::{group, state};
 trait Testing {
     type Meta;
     type AnotherType: Sized;
+    type __GroupoidLayoutMeta;
+    type __GroupoidLayoutAnotherType;
     type Marker: TestingGroupMarker<
             Meta = Self::Meta,
             AnotherType = Self::AnotherType,

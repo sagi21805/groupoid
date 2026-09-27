@@ -12,6 +12,12 @@ pub fn group_member_ident(trait_ident: &Ident) -> Ident {
     format_ident!("{}GroupMember", trait_ident)
 }
 
+/// The hidden associated type holding the layout `#[group]` records for
+/// associated type `assoc`, e.g. `Value` -> `__GroupoidLayoutValue`.
+pub fn layout_assoc_ident(assoc: &Ident) -> Ident {
+    format_ident!("__GroupoidLayout{}", assoc)
+}
+
 /// The group parameter of the `{Trait}GroupMember` trait.
 pub fn group_param_ident() -> Ident {
     format_ident!("__GroupoidGroup")

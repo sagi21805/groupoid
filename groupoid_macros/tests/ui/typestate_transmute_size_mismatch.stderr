@@ -1,0 +1,26 @@
+error[E0277]: convert with `morph_with` instead of transmuting: `groupoid::Layout<SmallGroup, u8, 1, 1>` and `groupoid::Layout<BigGroup, u64, 8, 8>` differ in size
+  --> tests/ui/typestate_transmute_size_mismatch.rs:35:31
+   |
+35 |     let _big = unsafe { small.transmute_state::<Big>() };
+   |                               ^^^^^^^^^^^^^^^ the trait `groupoid::SameLayout<groupoid::Layout<SmallGroup, u8, 1, 1>>` is not implemented for `groupoid::Layout<BigGroup, u64, 8, 8>`
+   |
+help: the following other types implement trait `groupoid::SameLayout<Other>`
+  --> $WORKSPACE/groupoid/src/lib.rs
+   |
+   | / impl<G1, T1, G2, T2, const SIZE: usize, const A1: usize, const A2: usize>
+   | |     SameLayout<Layout<G2, T2, SIZE, A2>> for Layout<G1, T1, SIZE, A1>
+   | | where
+   | |     Aligned<G1, T1, A1>: SameAlign<Aligned<G2, T2, A2>>,
+   | |________________________________________________________^ `groupoid::Layout<G1, T1, SIZE, A1>` implements `groupoid::SameLayout<groupoid::Layout<G2, T2, SIZE, A2>>`
+...
+   | / impl<G1, T1, G2: Pinned<T2>, T2, const SIZE: usize, const ALIGN: usize>
+   | |     SameLayout<Unpinned<G2, T2>> for Layout<G1, T1, SIZE, ALIGN>
+   | |________________________________________________________________^ `groupoid::Layout<G1, T1, SIZE, ALIGN>` implements `groupoid::SameLayout<groupoid::Unpinned<G2, T2>>`
+note: required for `Wrap<Small>` to implement `TransmutableState<Big>`
+  --> tests/ui/typestate_transmute_size_mismatch.rs:28:1
+   |
+28 | #[typestate(state = S, unsafe_transmute = true)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound introduced here
+29 | struct Wrap<S: Meta> {
+   |        ^^^^^^^^^^^^^
+   = note: this error originates in the attribute macro `typestate` (in Nightly builds, run with -Z macro-backtrace for more info)

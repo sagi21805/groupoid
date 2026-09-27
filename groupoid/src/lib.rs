@@ -7,6 +7,8 @@ extern crate std;
 
 mod morph;
 
+use core::marker::PhantomData;
+
 pub use groupoid_macros::*;
 pub use morph::Morph;
 
@@ -26,28 +28,89 @@ pub trait Group {}
 // type Marker: Group;
 // }
 
-// TODO: possible bugs may occur because of this, should ensure that the
-// SIZE and the ALIGN are matching.
+/// The layout `#[group]` pins an associated type to with `#[size(N)]`:
+/// type `T` of group `G`, `SIZE` bytes, `ALIGN`-aligned.
+///
+/// `G` and `T` appear only so errors can name them.
+#[doc(hidden)]
+pub struct Layout<G, T, const SIZE: usize, const ALIGN: usize>(
+    PhantomData<(G, T)>,
+);
 
-/// A group whose type has a known compile-time size.
-#[diagnostic::on_unimplemented(message = "add `#[size({SIZE})]` to the \
-                                          associated type in \
-                                          `#[group({Self})]`")]
-pub trait SizedGroup<const SIZE: usize>: Group {}
+/// The layout `#[group]` records for an associated type without
+/// `#[size(N)]`. It transmutes into nothing.
+#[doc(hidden)]
+pub struct Unpinned<G, T>(PhantomData<(G, T)>);
 
-/// A group whose type has a known compile-time alignment.
-#[diagnostic::on_unimplemented(
-    message = "add `align = N` to `#[typestate(..)]` to transmute into a \
-               state of `{Self}`",
-    note = "the value of `{Self}` is not {ALIGN}-byte aligned; `N` must \
-            be at least the largest alignment among the states"
-)]
-pub trait AlignedGroup<const ALIGN: usize>: Group {}
+/// The alignment of type `T` of group `G`, as [`SameAlign`] compares it.
+#[doc(hidden)]
+pub struct Aligned<G, T, const ALIGN: usize>(PhantomData<(G, T)>);
 
-/// A type that contains a group state, which implements [`SizedGroup`] and
-/// [`AlignedGroup`].
-pub trait SizedWithState<const SIZE: usize, const ALIGN: usize>:
-    WithState + Sized
+/// Never holds. An [`Unpinned`] layout on either side of [`SameSize`] or
+/// [`SameLayout`] requires it of its group, so the error asks for
+/// `#[size(N)]`.
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(message = "add `#[size(N)]` to the \
+                                          associated type set to `{T}` \
+                                          in `#[group({Self})]` to \
+                                          transmute it")]
+pub trait Pinned<T> {}
+
+/// Holds when `Self` and `Other` are pinned layouts of the same size.
+/// `#[typestate]` requires it under `align = N`.
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(message = "convert with `morph_with` \
+                                          instead of transmuting: \
+                                          `{Other}` and `{Self}` differ \
+                                          in size")]
+pub trait SameSize<Other> {}
+
+impl<G1, T1, G2, T2, const SIZE: usize, const A1: usize, const A2: usize>
+    SameSize<Layout<G2, T2, SIZE, A2>> for Layout<G1, T1, SIZE, A1>
+{
+}
+
+impl<G1, T1, G2: Pinned<T2>, T2, const SIZE: usize, const ALIGN: usize>
+    SameSize<Unpinned<G2, T2>> for Layout<G1, T1, SIZE, ALIGN>
+{
+}
+
+impl<G: Pinned<T>, T, Other> SameSize<Other> for Unpinned<G, T> {}
+
+/// Holds when `Self` and `Other` are pinned layouts of the same size and
+/// alignment. `#[typestate]` requires it without `align = N`.
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(message = "convert with `morph_with` \
+                                          instead of transmuting: \
+                                          `{Other}` and `{Self}` differ \
+                                          in size")]
+pub trait SameLayout<Other> {}
+
+impl<G1, T1, G2, T2, const SIZE: usize, const A1: usize, const A2: usize>
+    SameLayout<Layout<G2, T2, SIZE, A2>> for Layout<G1, T1, SIZE, A1>
+where
+    Aligned<G1, T1, A1>: SameAlign<Aligned<G2, T2, A2>>,
+{
+}
+
+impl<G1, T1, G2: Pinned<T2>, T2, const SIZE: usize, const ALIGN: usize>
+    SameLayout<Unpinned<G2, T2>> for Layout<G1, T1, SIZE, ALIGN>
+{
+}
+
+impl<G: Pinned<T>, T, Other> SameLayout<Other> for Unpinned<G, T> {}
+
+/// Holds when `Self` and `Other` have the same alignment. Checked only
+/// once [`SameLayout`] matched the sizes.
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(message = "add `align = N` to \
+                                          `#[typestate(..)]`, with `N` \
+                                          at least the larger alignment \
+                                          of `{Other}` and `{Self}`")]
+pub trait SameAlign<Other> {}
+
+impl<G1, T1, G2, T2, const ALIGN: usize> SameAlign<Aligned<G2, T2, ALIGN>>
+    for Aligned<G1, T1, ALIGN>
 {
 }
 
@@ -65,20 +128,17 @@ pub trait SizedWithState<const SIZE: usize, const ALIGN: usize>:
             target must be the same struct",
     note = "or convert by value with `morph_with`, which needs neither"
 )]
-pub unsafe trait TransmutableState<
-    To: State,
-    const SIZE: usize,
-    const ALIGN: usize,
->: SizedWithState<SIZE, ALIGN>
+pub unsafe trait TransmutableState<To: State>:
+    WithState + Sized
 {
     /// `Self` with `To` as its state and every other generic unchanged.
-    type Target: SizedWithState<SIZE, ALIGN> + WithState<State = To>;
+    type Target: WithState<State = To>;
 
     /// Compile-time check that `Self` and [`Target`](Self::Target) share
     /// a size and alignment.
     ///
     /// ```ignore
-    /// const _: () = <Wrap<Small> as TransmutableState<Big, 4, 4>>::LAYOUT_CHECK;
+    /// const _: () = <Wrap<Small> as TransmutableState<Big>>::LAYOUT_CHECK;
     /// ```
     const LAYOUT_CHECK: () = {
         assert!(
@@ -107,10 +167,10 @@ pub unsafe trait TransmutableState<
 /// let big = unsafe { small.transmute_state::<Big>() }; // Wrap<Small> -> Wrap<Big>
 /// ```
 ///
-/// Both states must agree on `SIZE` and `ALIGN` (see [`SizedWithState`]).
-pub trait Isomorphic<const SIZE: usize, const ALIGN: usize>:
-    WithState + Sized
-{
+/// `#[typestate(unsafe_transmute = true)]` implements
+/// [`TransmutableState`] only for target states whose projections share
+/// the source's `#[size(N)]` and alignment.
+pub trait Isomorphic: WithState + Sized {
     /// Bit-reinterprets `self` as the same container type with the
     /// [`State`] `To` plugged in.
     ///
@@ -119,11 +179,11 @@ pub trait Isomorphic<const SIZE: usize, const ALIGN: usize>:
     /// The caller must ensure the bit pattern of `Self` is a valid
     /// instance of the target at every byte the two types share.
     ///
-    /// Size equality is guaranteed by the [`SizedWithState`] bound, and
-    /// rechecked by [`TransmutableState::LAYOUT_CHECK`].
+    /// Size equality is guaranteed by the [`TransmutableState`] bound,
+    /// and rechecked by [`TransmutableState::LAYOUT_CHECK`].
     unsafe fn transmute_state<To: State>(self) -> Self::Target
     where
-        Self: TransmutableState<To, SIZE, ALIGN>,
+        Self: TransmutableState<To>,
     {
         const { Self::LAYOUT_CHECK }
         let value = core::mem::ManuallyDrop::new(self);
@@ -141,11 +201,12 @@ pub trait Isomorphic<const SIZE: usize, const ALIGN: usize>:
     /// The caller must ensure the bit pattern of `Self` is a valid
     /// instance of the target at every byte the two types share.
     ///
-    /// Size and Alignment equality is guaranteed by the [`SizedWithState`]
-    /// bound, and rechecked by [`TransmutableState::LAYOUT_CHECK`].
+    /// Size and alignment equality is guaranteed by the
+    /// [`TransmutableState`] bound, and rechecked by
+    /// [`TransmutableState::LAYOUT_CHECK`].
     unsafe fn transmute_state_ref<To: State>(&self) -> &Self::Target
     where
-        Self: TransmutableState<To, SIZE, ALIGN>,
+        Self: TransmutableState<To>,
     {
         const { Self::LAYOUT_CHECK }
         // SAFETY: `TransmutableState` guarantees `Self` and `Target` share
@@ -161,13 +222,14 @@ pub trait Isomorphic<const SIZE: usize, const ALIGN: usize>:
     /// The caller must ensure the bit pattern of `Self` is a valid
     /// instance of the target at every byte the two types share.
     ///
-    /// Size and Alignment equality is guaranteed by the [`SizedWithState`]
-    /// bound, and rechecked by [`TransmutableState::LAYOUT_CHECK`].
+    /// Size and alignment equality is guaranteed by the
+    /// [`TransmutableState`] bound, and rechecked by
+    /// [`TransmutableState::LAYOUT_CHECK`].
     unsafe fn transmute_state_mut<To: State>(
         &mut self,
     ) -> &mut Self::Target
     where
-        Self: TransmutableState<To, SIZE, ALIGN>,
+        Self: TransmutableState<To>,
     {
         const { Self::LAYOUT_CHECK }
         // SAFETY: `TransmutableState` guarantees `Self` and `Target` share
@@ -176,7 +238,4 @@ pub trait Isomorphic<const SIZE: usize, const ALIGN: usize>:
     }
 }
 
-impl<T: WithState, const SIZE: usize, const ALIGN: usize>
-    Isomorphic<SIZE, ALIGN> for T
-{
-}
+impl<T: WithState> Isomorphic for T {}

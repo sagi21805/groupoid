@@ -141,7 +141,7 @@ fn typestate_infers_sole_generic_as_state() {
     same_state::<Inferred<StateA>>();
 }
 
-// --- SizedWithState derives despite an extra, non-template bound
+// --- TransmutableState derives despite an extra, non-template bound
 // ----------------
 
 #[template]
@@ -164,23 +164,21 @@ impl Sized4 for (Sized4State,) {
     type Value = u32;
 }
 
-// Extra bounds next to the template trait still derive `SizedWithState`.
+// Extra bounds next to the template trait still derive
+// `TransmutableState`.
 #[typestate(state = S, unsafe_transmute = true)]
 struct SizedWrap<S: Sized4 + std::fmt::Debug> {
     #[allow(dead_code)]
     value: S::Value,
 }
 
-fn assert_sized_with_state<
-    T: groupoid::SizedWithState<N, A>,
-    const N: usize,
-    const A: usize,
+fn assert_transmutable<
+    T: groupoid::TransmutableState<To>,
+    To: groupoid::State,
 >() {
 }
 
 #[test]
-fn sized_with_state_derives_despite_extra_non_template_bound() {
-    // `u32` is 4 bytes and 4-aligned, so both halves of the layout key are
-    // 4.
-    assert_sized_with_state::<SizedWrap<Sized4State>, 4, 4>();
+fn transmutable_state_derives_despite_extra_non_template_bound() {
+    assert_transmutable::<SizedWrap<Sized4State>, Sized4State>();
 }
