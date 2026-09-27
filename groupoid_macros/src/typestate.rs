@@ -30,9 +30,9 @@ pub(crate) struct TypeState {
     target_ty: TokenStream,
     /// Whether `TransmutableState` is derived too.
     transmute: Transmute,
-    /// The one associated type the fields project through the state
-    /// (`Value` in `S::Value`), if any.
-    projection: Option<Ident>,
+    /// The distinct associated types the fields project through the
+    /// state (`Value` in `S::Value`), in order of first appearance.
+    projections: Vec<Ident>,
 }
 
 impl TypeState {
@@ -53,14 +53,14 @@ impl TypeState {
         let state = state_param.ident.clone();
         let target_ty =
             item_struct.with_state(&state, &target_state.ident);
-        let projection = item_struct.unique_projection(&state)?;
-        if projection.is_some() {
-            item_struct.require_single_state_args(&state)?;
+        let projections = item_struct.projections(&state)?;
+        if !projections.is_empty() {
+            item_struct.require_morphable_layers(&state, &projections)?;
         }
 
         if let Transmute::On(align) = &args.transmute {
             item_struct.require_transmutable_layout(&state)?;
-            if projection.is_none() {
+            if projections.is_empty() {
                 return Err(syn::Error::new_spanned(
                     &item_struct.ident,
                     format!(
@@ -78,7 +78,7 @@ impl TypeState {
             target_state,
             target_ty,
             transmute: args.transmute,
-            projection,
+            projections,
         })
     }
 
@@ -92,10 +92,7 @@ impl TypeState {
             }
             Transmute::Off => None,
         };
-        let morph_impl = self
-            .projection
-            .as_ref()
-            .map(|projection| self.morph_impl(projection));
+        let morph_impl = self.morph_impl();
 
         quote! {
             #item_struct
@@ -136,7 +133,7 @@ impl TypeState {
             .params
             .push(GenericParam::Type(self.target_state.clone()));
         generics.make_where_clause().predicates.extend(
-            self.projection.iter().map(|projection| {
+            self.projections.iter().map(|projection| {
                 self.layout_predicate(projection, align)
             }),
         );
@@ -231,24 +228,147 @@ impl TypeState {
         }
     }
 
-    /// The inherent `morph_with` method, which rebuilds the struct for
-    /// another state by value.
-    fn morph_impl(&self, projection: &Ident) -> TokenStream {
+    /// The inherent `morph_with`, which rebuilds the struct for another
+    /// state by value, and the `{Struct}Morph` it takes when the fields
+    /// use several projections.
+    fn morph_impl(&self) -> Option<TokenStream> {
+        let (morph_with, morph_struct) = match self.projections.as_slice()
+        {
+            [] => return None,
+            [projection] => (self.closure_morph_with(projection), None),
+            _ => (self.fields_morph_with(), Some(self.morph_struct())),
+        };
         let struct_ident = &self.item_struct.ident;
-        let state = &self.state;
-        let target_state = &self.target_state.ident;
-        let target_ty = &self.target_ty;
-        let f = &crate::naming::morph_fn_ident();
-        let elem = &crate::naming::morph_elem_ident();
         let (impl_generics, ty_generics, where_clause) =
             self.item_struct.generics.split_for_impl();
 
+        Some(quote! {
+            #morph_struct
+
+            impl #impl_generics #struct_ident #ty_generics #where_clause {
+                #morph_with
+            }
+        })
+    }
+
+    /// `morph_with(f)`, converting the one projection with the closure
+    /// `f`.
+    fn closure_morph_with(&self, projection: &Ident) -> TokenStream {
+        let state = &self.state;
+        let target_state = &self.target_state.ident;
+        let target_ty = &self.target_ty;
+        let f = crate::naming::morph_fn_ident();
+        let (generics, body) = self.morph_parts(&Leaves::Closure(&f));
+        let (impl_generics, _, where_clause) = generics.split_for_impl();
+
+        quote! {
+            /// Rebuilds `self` for the target state, converting every
+            /// projection through the state with `f`.
+            ///
+            /// Tuples are rebuilt in place, and every other wrapper goes
+            /// through `groupoid::Morph`, one layer at a time. Fields
+            /// that don't mention the state move unchanged.
+            pub fn morph_with #impl_generics (
+                self,
+                mut #f: impl FnMut(#state::#projection)
+                    -> #target_state::#projection,
+            ) -> #target_ty #where_clause {
+                #body
+            }
+        }
+    }
+
+    /// `morph_with({Struct}Morph { .. })`, converting each projection
+    /// with its own closure.
+    fn fields_morph_with(&self) -> TokenStream {
+        let state = &self.state;
+        let target_state = &self.target_state.ident;
+        let target_ty = &self.target_ty;
+        let morph_struct =
+            crate::naming::struct_morph_ident(&self.item_struct.ident);
+        let f = crate::naming::morph_fn_ident();
+        let (generics, body) = self.morph_parts(&Leaves::Fields);
+        let (impl_generics, _, where_clause) = generics.split_for_impl();
+        let bindings = self.projections.iter().map(|projection| {
+            let field = crate::naming::morph_method_ident(projection);
+            let binding = crate::naming::morph_binding_ident(projection);
+            quote!(#field: #binding)
+        });
+        let doc = format!(
+            "Rebuilds `self` for the target state, converting each \
+             projection through the state with its closure in \
+             [`{morph_struct}`]."
+        );
+
+        quote! {
+            #[doc = #doc]
+            ///
+            /// Tuples are rebuilt in place, and every other wrapper goes
+            /// through `groupoid::Morph`, one layer at a time. Fields
+            /// that don't mention the state move unchanged.
+            pub fn morph_with #impl_generics (
+                self,
+                #f: #morph_struct<'_, #state, #target_state>,
+            ) -> #target_ty #where_clause {
+                let #morph_struct { #(#bindings),* } = #f;
+                #body
+            }
+        }
+    }
+
+    /// `{Struct}Morph`, one `&mut dyn FnMut` per projection.
+    ///
+    /// The states are parameters of the struct, so each closure infers
+    /// its argument type from its field. A generic `F: FnMut(..)` field
+    /// would get a fresh type variable in the struct literal instead.
+    fn morph_struct(&self) -> TokenStream {
+        let vis = &self.item_struct.vis;
+        let struct_ident = &self.item_struct.ident;
+        let morph_struct = crate::naming::struct_morph_ident(struct_ident);
+        let lifetime = crate::naming::morph_lifetime();
+        let state = &self.state;
+        let target_state = &self.target_state.ident;
+        let state_param = TypeParam {
+            ident: state.clone(),
+            ..self.target_state.clone()
+        };
+        let target_param = &self.target_state;
+        let fields = self.projections.iter().map(|projection| {
+            let field = crate::naming::morph_method_ident(projection);
+            let doc = format!(
+                "Converts `{state}::{projection}` into the target \
+                 state's."
+            );
+            quote! {
+                #[doc = #doc]
+                pub #field: &#lifetime mut dyn FnMut(#state::#projection)
+                    -> #target_state::#projection
+            }
+        });
+        let doc = format!(
+            "The conversions [`{struct_ident}::morph_with`] applies, one \
+             per associated type of `{state}` that `{struct_ident}` uses."
+        );
+
+        quote! {
+            #[doc = #doc]
+            #vis struct #morph_struct<#lifetime, #state_param, #target_param> {
+                #(#fields,)*
+            }
+        }
+    }
+
+    /// The struct literal rebuilding `self` for the target state through
+    /// `leaves`, and the method's generics: the target state, bounded by
+    /// the `Morph` calls the literal makes.
+    fn morph_parts(&self, leaves: &Leaves) -> (Generics, TokenStream) {
+        let elem = crate::naming::morph_elem_ident();
         let ctx = MorphCtx {
-            state,
-            target_state,
-            projection,
-            f,
-            elem,
+            state: &self.state,
+            target_state: &self.target_state.ident,
+            projections: &self.projections,
+            leaves,
+            elem: &elem,
         };
         let mut predicates = Vec::new();
         let body = self.morph_body(&ctx, &mut predicates);
@@ -258,26 +378,8 @@ impl TypeState {
             .params
             .push(GenericParam::Type(self.target_state.clone()));
         generics.make_where_clause().predicates.extend(predicates);
-        let (with_impl_generics, _, with_where_clause) =
-            generics.split_for_impl();
 
-        quote! {
-            impl #impl_generics #struct_ident #ty_generics #where_clause {
-                /// Rebuilds `self` for the target state, converting every
-                /// projection through the state with `f`.
-                ///
-                /// Tuples are rebuilt in place, and every other wrapper goes
-                /// through `groupoid::Morph`, one layer at a time. Fields
-                /// that don't mention the state move unchanged.
-                pub fn morph_with #with_impl_generics (
-                    self,
-                    mut #f: impl FnMut(#state::#projection)
-                        -> #target_state::#projection,
-                ) -> #target_ty #with_where_clause {
-                    #body
-                }
-            }
-        }
+        (generics, body)
     }
 
     /// The struct literal rebuilding `self` field by field for the target
@@ -436,39 +538,49 @@ impl ItemStruct {
             })
     }
 
-    /// The one associated type the fields project through the state
-    /// (`Value` in `S::Value`), at any depth.
-    fn unique_projection(
-        &self,
-        state: &Ident,
-    ) -> syn::Result<Option<Ident>> {
-        let mut projections = self
+    /// The distinct associated types the fields project through the
+    /// state (`Value` in `S::Value`), at any depth, in order of first
+    /// appearance.
+    fn projections(&self, state: &Ident) -> syn::Result<Vec<Ident>> {
+        let mut projections: Vec<Ident> = Vec::new();
+
+        for projection in self
             .fields
             .iter()
-            .flat_map(|field| field.ty.projections(state));
-
-        let Some(first) = projections.next() else {
-            return Ok(None);
-        };
-        if let Some(found) = projections.find(|found| *found != first) {
-            return Err(syn::Error::new(
-                found.span(),
-                format!(
-                    "project every field through the same associated \
-                     type of `{state}`, not both `{state}::{first}` and \
-                     `{state}::{found}`"
-                ),
-            ));
+            .flat_map(|field| field.ty.projections(state))
+        {
+            if projection == "Marker" {
+                return Err(syn::Error::new(
+                    projection.span(),
+                    format!(
+                        "replace `{state}::Marker` with \
+                         `PhantomData<{state}>`: a group marker has no \
+                         value to convert"
+                    ),
+                ));
+            }
+            if !projections.contains(&projection) {
+                projections.push(projection);
+            }
         }
 
-        Ok(Some(first))
+        Ok(projections)
     }
 
-    /// Checks that every wrapper `morph_with` peels has one generic
-    /// argument to morph.
-    fn require_single_state_args(&self, state: &Ident) -> syn::Result<()> {
-        for field in self.fields.iter() {
-            if let Some(layer) = field.ty.ambiguous_layer(state) {
+    /// Checks that every layer `morph_with` converts with one `Morph`
+    /// call has one generic argument and one projection to convert.
+    fn require_morphable_layers(
+        &self,
+        state: &Ident,
+        projections: &[Ident],
+    ) -> syn::Result<()> {
+        let layers = self
+            .fields
+            .iter()
+            .flat_map(|field| field.ty.opaque_layers(state));
+
+        for layer in layers {
+            if layer.state_args(state).len() > 1 {
                 return Err(syn::Error::new_spanned(
                     layer,
                     format!(
@@ -476,6 +588,17 @@ impl ItemStruct {
                          mentions `{state}`, such as a local \
                          `Wrapper<{state}::Assoc>` that implements \
                          `groupoid::Morph`"
+                    ),
+                ));
+            }
+            if layer.opaque_projection(state, projections).is_none() {
+                return Err(syn::Error::new_spanned(
+                    layer,
+                    format!(
+                        "split this type into one part per associated \
+                         type of `{state}`, such as a tuple \
+                         `(Wrapper<{state}::A>, Wrapper<{state}::B>)`: \
+                         `morph_with` converts it through one projection"
                     ),
                 ));
             }
@@ -599,9 +722,8 @@ impl Type {
     ) -> TokenStream {
         match self.morph_shape(ctx.state) {
             MorphShape::Unchanged => expr,
-            MorphShape::Direct => {
-                let f = ctx.f;
-                quote!(#f(#expr))
+            MorphShape::Direct(projection) => {
+                ctx.leaves.call(projection, expr)
             }
             MorphShape::Zst(value) => value,
             MorphShape::Tuple(tuple) => {
@@ -629,15 +751,19 @@ impl Type {
                 let MorphCtx {
                     state,
                     target_state,
-                    projection,
-                    f,
-                    ..
+                    projections,
+                    leaves,
+                    elem,
                 } = ctx;
+                let projection = self
+                    .opaque_projection(state, projections)
+                    .expect("`new` rejects layers without one projection");
+                let leaf = leaves.call(projection, quote!(#elem));
                 self.morph_call(
                     expr,
                     quote!(#state::#projection),
                     quote!(#target_state::#projection),
-                    quote!(#f),
+                    quote!(|#elem| #leaf),
                     ctx,
                     predicates,
                 )
@@ -650,8 +776,8 @@ impl Type {
         if !self.mentions_ident(state) {
             return MorphShape::Unchanged;
         }
-        if self.state_projection(state).is_some() {
-            return MorphShape::Direct;
+        if let Some(projection) = self.state_projection(state) {
+            return MorphShape::Direct(projection);
         }
         if let Some(value) = self.zst_value() {
             return MorphShape::Zst(value);
@@ -708,22 +834,41 @@ impl Type {
         found
     }
 
-    /// The first layer `morph_with` would reach that has several
-    /// different generic arguments mentioning the state.
+    /// The layers `morph_with` converts with one `Morph` call.
     ///
-    /// `Option<Result<S::Value, [S::Value; 2]>> -> Result<..>`
-    fn ambiguous_layer(&self, state: &Ident) -> Option<&Type> {
+    /// `(S::A, Option<Result<S::A, S::B>>) -> [Result<S::A, S::B>]`
+    fn opaque_layers(&self, state: &Ident) -> Vec<&Type> {
         match self.morph_shape(state) {
             MorphShape::Unchanged
-            | MorphShape::Direct
-            | MorphShape::Zst(_) => None,
-            MorphShape::Tuple(tuple) => {
-                tuple.elems.iter().find_map(|ty| ty.ambiguous_layer(state))
-            }
-            MorphShape::Wrapped(inner) => inner.ambiguous_layer(state),
-            MorphShape::Opaque => {
-                (self.state_args(state).len() > 1).then_some(self)
-            }
+            | MorphShape::Direct(_)
+            | MorphShape::Zst(_) => Vec::new(),
+            MorphShape::Tuple(tuple) => tuple
+                .elems
+                .iter()
+                .flat_map(|ty| ty.opaque_layers(state))
+                .collect(),
+            MorphShape::Wrapped(inner) => inner.opaque_layers(state),
+            MorphShape::Opaque => vec![self],
+        }
+    }
+
+    /// The projection an opaque layer converts through: the one it
+    /// mentions, or the struct's only one when it mentions none.
+    fn opaque_projection<'p>(
+        &self,
+        state: &Ident,
+        projections: &'p [Ident],
+    ) -> Option<&'p Ident> {
+        let mentioned = self.projections(state);
+        let found: Vec<&Ident> = projections
+            .iter()
+            .filter(|projection| mentioned.contains(projection))
+            .collect();
+
+        match (found.as_slice(), projections) {
+            ([projection], _) => Some(projection),
+            ([], [projection]) => Some(projection),
+            _ => None,
         }
     }
 
@@ -799,8 +944,8 @@ impl TypeTuple {
 enum MorphShape<'a> {
     /// A type that doesn't mention the state, moved as is.
     Unchanged,
-    /// `S::Value`, passed to `f`.
-    Direct,
+    /// `S::Value`, converted by its leaf.
+    Direct(&'a Ident),
     /// A ZST, created fresh.
     Zst(TokenStream),
     /// `(T, ..)`
@@ -830,10 +975,32 @@ impl<'ast> Visit<'ast> for Projections<'_> {
 struct MorphCtx<'a> {
     state: &'a Ident,
     target_state: &'a Ident,
-    /// `Value` in `S::Value`.
-    projection: &'a Ident,
-    /// The conversion closure.
-    f: &'a Ident,
+    /// Every projection the struct uses.
+    projections: &'a [Ident],
+    leaves: &'a Leaves<'a>,
     /// The closure binding for one element of a mapped or boxed value.
     elem: &'a Ident,
+}
+
+/// How the generated method converts one projected value.
+enum Leaves<'a> {
+    /// `morph_with(f)`, one closure for the only projection: `f(v)`.
+    Closure(&'a Ident),
+    /// `morph_with({Struct}Morph { .. })`, one closure per projection,
+    /// destructured into bindings: `__groupoid_value(v)`.
+    Fields,
+}
+
+impl Leaves<'_> {
+    /// The expression converting `arg`, a value of `S::projection`.
+    fn call(&self, projection: &Ident, arg: TokenStream) -> TokenStream {
+        match self {
+            Leaves::Closure(f) => quote!(#f(#arg)),
+            Leaves::Fields => {
+                let binding =
+                    crate::naming::morph_binding_ident(projection);
+                quote!(#binding(#arg))
+            }
+        }
+    }
 }

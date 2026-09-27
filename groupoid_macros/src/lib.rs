@@ -46,7 +46,7 @@ pub fn template(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let item_trait = parse_macro_input!(item as ItemTrait);
 
     Template::new(&item_trait)
-        .create_group_marker()
+        .and_then(|template| template.create_group_marker())
         .unwrap_or_else(|err| err.into_compile_error())
         .into()
 }
