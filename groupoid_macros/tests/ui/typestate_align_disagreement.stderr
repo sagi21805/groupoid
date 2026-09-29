@@ -1,17 +1,18 @@
-error[E0277]: add `align = N` to `#[typestate(..)]`, with `N` at least the larger alignment of `groupoid::Aligned<WideGroup, u64, 8>` and `groupoid::Aligned<BytesGroup, [u8; 8], 1>`
+error[E0277]: add `align = N` to `#[typestate(..)]`, with `N` at least the larger alignment of `groupoid::PinnedTypeAlignment<WideGroup, u64, 8>` and `groupoid::PinnedTypeAlignment<BytesGroup, [u8; 8], 1>`
   --> tests/ui/typestate_align_disagreement.rs:37:32
    |
 37 |     let _bytes = unsafe { wide.transmute_state::<Bytes>() };
-   |                                ^^^^^^^^^^^^^^^ the trait `groupoid::SameAlign<groupoid::Aligned<WideGroup, u64, 8>>` is not implemented for `groupoid::Aligned<BytesGroup, [u8; 8], 1>`
+   |                                ^^^^^^^^^^^^^^^ unsatisfied trait bound
    |
-help: the trait `SameAlign<groupoid::Aligned<WideGroup, u64, 8>>` is not implemented for `groupoid::Aligned<BytesGroup, [u8; 8], 1>`
-      but trait `SameAlign<groupoid::Aligned<WideGroup, u64, 1>>` is implemented for it
-  --> $WORKSPACE/groupoid/src/lib.rs
+   = help: the trait `groupoid::SameAlignment<groupoid::PinnedTypeAlignment<WideGroup, u64, 8>>` is not implemented for `groupoid::PinnedTypeAlignment<BytesGroup, [u8; 8], 1>`
+help: the trait `groupoid::SameAlignment<groupoid::UnpinnedTypeAlignment<G2, T2>>` is implemented for `groupoid::PinnedTypeAlignment<G1, T1, ALIGN>`
+  --> $WORKSPACE/groupoid/src/error_helpers.rs
    |
-   | / impl<G1, T1, G2, T2, const ALIGN: usize> SameAlign<Aligned<G2, T2, ALIGN>>
-   | |     for Aligned<G1, T1, ALIGN>
-   | |______________________________^
-   = note: required for `groupoid::Layout<BytesGroup, [u8; 8], 8, 1>` to implement `groupoid::SameLayout<groupoid::Layout<WideGroup, u64, 8, 8>>`
+   | / unsafe impl<G1, T1, G2: PinnedLayout<T2>, T2, const ALIGN: usize>
+   | |     SameAlignment<UnpinnedTypeAlignment<G2, T2>>
+   | |     for PinnedTypeAlignment<G1, T1, ALIGN>
+   | |__________________________________________^
+   = note: required for `groupoid::PinnedTypeLayout<BytesGroup, [u8; 8], 8, 1>` to implement `groupoid::SameLayout<groupoid::PinnedTypeLayout<WideGroup, u64, 8, 8>>`
 note: required for `Wrap<Wide>` to implement `TransmutableState<Bytes>`
   --> tests/ui/typestate_align_disagreement.rs:29:1
    |

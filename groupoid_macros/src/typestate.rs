@@ -158,7 +158,10 @@ impl TypeState {
     /// Requires `projection` to have one size in both states, and one
     /// alignment unless `align = N` forces it.
     ///
-    /// `S2::__GroupoidLayoutP: SameLayout<S::__GroupoidLayoutP>`
+    /// `S2::__GroupoidLayoutP: SameLayout<S::__GroupoidLayoutP>`, or
+    /// `<S2::__GroupoidLayoutP as TypeLayout>::Size:
+    /// SameSize<<S::__GroupoidLayoutP as TypeLayout>::Size>` under
+    /// `align = N`
     ///
     /// The target state goes on the left: method lookup checks
     /// `transmute_state`'s bounds before the turbofish names `S2`, and
@@ -171,13 +174,15 @@ impl TypeState {
         let state = &self.state;
         let target_state = &self.target_state.ident;
         let layout = crate::naming::layout_assoc_ident(projection);
-        let check = match align {
-            Alignment::Inferred => quote!(SameLayout),
-            Alignment::Forced(_) => quote!(SameSize),
-        };
 
-        parse_quote! {
-            #target_state::#layout: ::groupoid::#check<#state::#layout>
+        match align {
+            Alignment::Inferred => parse_quote! {
+                #target_state::#layout: ::groupoid::SameLayout<#state::#layout>
+            },
+            Alignment::Forced(_) => parse_quote! {
+                <#target_state::#layout as ::groupoid::TypeLayout>::Size:
+                    ::groupoid::SameSize<<#state::#layout as ::groupoid::TypeLayout>::Size>
+            },
         }
     }
 

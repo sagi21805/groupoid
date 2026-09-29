@@ -50,7 +50,7 @@ impl<'ast> Template<'ast> {
         let mut original = self.inner.clone();
         original.items.push(parse_quote! {
             #[doc(hidden)]
-            type #layout_ident;
+            type #layout_ident: ::groupoid::TypeLayout;
         });
         original.items.push(parse_quote! {
             type Marker: #marker_name<#assoc_ident = Self::#assoc_ident>;

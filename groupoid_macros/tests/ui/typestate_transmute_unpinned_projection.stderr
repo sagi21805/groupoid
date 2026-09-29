@@ -4,7 +4,7 @@ error[E0277]: add `#[size(N)]` to the associated type set to `u32` in `#[group(L
 34 |     let _ = unsafe { pinned.transmute_state::<Loose>() };
    |                             ^^^^^^^^^^^^^^^ unsatisfied trait bound
    |
-help: the trait `groupoid::Pinned<u32>` is not implemented for `LooseGroup`
+help: the trait `groupoid::PinnedLayout<u32>` is not implemented for `LooseGroup`
   --> tests/ui/typestate_transmute_unpinned_projection.rs:22:1
    |
 22 | #[group(LooseGroup)]
@@ -14,7 +14,8 @@ help: the trait `TransmutableState<__GroupoidTargetState>` is conditionally impl
    |
 27 | #[typestate(state = S, unsafe_transmute = true)]
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied requirement introduced here: `<Loose as Meta>::__GroupoidLayoutValue: groupoid::SameLayout<<Pinned as Meta>::__GroupoidLayoutValue>`
-   = note: required for `groupoid::Unpinned<LooseGroup, u32>` to implement `groupoid::SameLayout<groupoid::Layout<PinnedGroup, u32, 4, 4>>`
+   = note: required for `groupoid::UnpinnedTypeSize<LooseGroup, u32>` to implement `groupoid::SameSize<groupoid::PinnedTypeSize<PinnedGroup, u32, 4>>`
+   = note: required for `groupoid::UnpinnedTypeLayout<LooseGroup, u32>` to implement `groupoid::SameLayout<groupoid::PinnedTypeLayout<PinnedGroup, u32, 4, 4>>`
 note: required for `Wrap<Pinned>` to implement `TransmutableState<Loose>`
   --> tests/ui/typestate_transmute_unpinned_projection.rs:27:1
    |
@@ -30,7 +31,7 @@ error[E0277]: add `#[size(N)]` to the associated type set to `u32` in `#[group(L
 37 |     let _ = unsafe { loose.transmute_state::<Pinned>() };
    |                            ^^^^^^^^^^^^^^^ unsatisfied trait bound
    |
-help: the trait `groupoid::Pinned<u32>` is not implemented for `LooseGroup`
+help: the trait `groupoid::PinnedLayout<u32>` is not implemented for `LooseGroup`
   --> tests/ui/typestate_transmute_unpinned_projection.rs:22:1
    |
 22 | #[group(LooseGroup)]
@@ -40,7 +41,8 @@ help: the trait `TransmutableState<__GroupoidTargetState>` is conditionally impl
    |
 27 | #[typestate(state = S, unsafe_transmute = true)]
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied requirement introduced here: `<Pinned as Meta>::__GroupoidLayoutValue: groupoid::SameLayout<<Loose as Meta>::__GroupoidLayoutValue>`
-   = note: required for `groupoid::Layout<PinnedGroup, u32, 4, 4>` to implement `groupoid::SameLayout<groupoid::Unpinned<LooseGroup, u32>>`
+   = note: required for `groupoid::PinnedTypeSize<PinnedGroup, u32, 4>` to implement `groupoid::SameSize<groupoid::UnpinnedTypeSize<LooseGroup, u32>>`
+   = note: required for `groupoid::PinnedTypeLayout<PinnedGroup, u32, 4, 4>` to implement `groupoid::SameLayout<groupoid::UnpinnedTypeLayout<LooseGroup, u32>>`
 note: required for `Wrap<Loose>` to implement `TransmutableState<Pinned>`
   --> tests/ui/typestate_transmute_unpinned_projection.rs:27:1
    |

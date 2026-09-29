@@ -131,11 +131,11 @@ impl<'ast> Group<'ast> {
 /// #[size(4)] type Value = u32;
 /// // ->
 /// const _: () = assert!(size_of::<u32>() == 4, ..);
-/// type __GroupoidLayoutValue = Layout<G, u32, 4, { align_of::<u32>() }>;
+/// type __GroupoidLayoutValue = PinnedTypeLayout<G, u32, 4, { align_of::<u32>() }>;
 ///
 /// type Value = String;
 /// // ->
-/// type __GroupoidLayoutValue = Unpinned<G, String>;
+/// type __GroupoidLayoutValue = UnpinnedTypeLayout<G, String>;
 /// ```
 struct TypeLayout {
     item: TokenStream,
@@ -153,7 +153,7 @@ impl TypeLayout {
             let ty = &impl_ty.ty;
             return Ok(TypeLayout {
                 item: quote! {
-                    type #layout = ::groupoid::Unpinned<#group, #ty>;
+                    type #layout = ::groupoid::UnpinnedTypeLayout<#group, #ty>;
                 },
                 assert: None,
             });
@@ -163,7 +163,7 @@ impl TypeLayout {
             SizeAssert::try_from(impl_ty)?;
         Ok(TypeLayout {
             item: quote! {
-                type #layout = ::groupoid::Layout<
+                type #layout = ::groupoid::PinnedTypeLayout<
                     #group, #ty, #size, { ::core::mem::align_of::<#ty>() }
                 >;
             },
