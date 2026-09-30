@@ -1,14 +1,7 @@
-/// Converts a wrapper around one type into the same wrapper around
-/// another.
+/// Converts a wrapper around `Src` into the same wrapper around `Dst`.
 ///
-/// `morph_with` rebuilds tuples, ZSTs and bare projections itself, and
-/// peels every other type one generic layer at a time through this trait.
-/// `Option<[S::Value; 2]>` is morphed by `Option`'s impl, which calls
-/// the array's impl, which calls `f`.
-///
-/// Only one generic argument of a layer may mention the state. The
-/// built-in impls map the last one: the value of a map, or `Ok` of a
-/// `Result`.
+/// `morph_with` peels one generic layer per impl. Only one generic
+/// argument of a layer may mention the state.
 ///
 /// ```
 /// use groupoid::{Morph, group, state, template, typestate};
@@ -59,10 +52,7 @@
 ///
 /// # Features
 ///
-/// The `core`, `alloc` and `std` features provide impls for the types of
-/// those crates. With a feature off, the orphan rule still allows impls
-/// for a local projection type, such as
-/// `impl<B> Morph<MyValue, B> for Option<MyValue>`.
+/// `core`, `alloc` and `std` provide impls for those crates' types.
 #[diagnostic::on_unimplemented(
     message = "implement `groupoid::Morph<{Src}, {Dst}>` for `{Self}` to \
                morph it",

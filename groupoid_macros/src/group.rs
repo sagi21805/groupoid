@@ -56,8 +56,7 @@ impl<'ast> Group<'ast> {
         })
     }
 
-    /// The implemented trait, e.g. `Testing` in
-    /// `impl Testing for (StateA, StateB)`.
+    /// `impl Testing for (StateA, StateB)` -> `Testing`
     fn trait_name(&self) -> syn::Result<&'ast Ident> {
         let (trait_path, _) =
             self.inner_impl.trait_.as_ref().ok_or_else(|| {
@@ -77,8 +76,6 @@ impl<'ast> Group<'ast> {
         })
     }
 
-    /// The states in the `Self` tuple.
-    ///
     /// `(StateA, StateB) -> [StateA, StateB]`
     fn states(&self) -> syn::Result<Vec<&'ast Ident>> {
         let Type::Tuple(tup) = self.inner_impl.self_ty.as_ref() else {
@@ -107,8 +104,7 @@ impl<'ast> Group<'ast> {
             .collect()
     }
 
-    /// The layout of every associated type in `items`, stripping their
-    /// `#[size(N)]`.
+    /// The layout of every associated type, stripping `#[size(N)]`.
     fn layouts(
         &self,
         items: &mut [ImplItem],
@@ -116,16 +112,16 @@ impl<'ast> Group<'ast> {
         items
             .iter_mut()
             .filter_map(|item| match item {
-                ImplItem::Type(impl_ty) => Some(impl_ty),
+                ImplItem::Type(impl_ty) => {
+                    Some(TypeLayout::new(impl_ty, self.group_name))
+                }
                 _ => None,
             })
-            .map(|impl_ty| TypeLayout::new(impl_ty, self.group_name))
             .collect()
     }
 }
 
-/// What `#[group]` records about one associated type's layout: the hidden
-/// item every state impl gets, and the size assertion when it is pinned.
+/// An associated type's layout item and size assertion.
 ///
 /// ```ignore
 /// #[size(4)] type Value = u32;
@@ -172,8 +168,7 @@ impl TypeLayout {
     }
 }
 
-/// A compile-time assertion that `ty` is `size` bytes, read from
-/// `#[size(N)]`.
+/// A compile-time assertion read from `#[size(N)]`.
 pub struct SizeAssert<'a> {
     pub assert: TokenStream,
     pub size: LitInt,
@@ -183,8 +178,7 @@ pub struct SizeAssert<'a> {
 impl<'a> TryFrom<&'a mut ImplItemType> for SizeAssert<'a> {
     type Error = syn::Error;
 
-    /// Reads and removes the `#[size(N)]` on an associated type, rejecting
-    /// any other attribute.
+    /// Reads and removes `#[size(N)]`, rejecting other attributes.
     fn try_from(impl_ty: &'a mut ImplItemType) -> syn::Result<Self> {
         let ident = &impl_ty.ident;
 

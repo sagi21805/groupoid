@@ -16,9 +16,7 @@ pub struct GroupImpl<'ast> {
 }
 
 impl<'ast> GroupImpl<'ast> {
-    /// Checks that `item_impl` is a trait impl and resolves its state
-    /// parameter: the one `state = <Ident>` names, or the impl's only
-    /// generic type parameter.
+    /// Resolves the state parameter of a trait impl.
     pub fn new(
         args: &'ast GroupImplArgs,
         item_impl: &'ast ItemImpl,
@@ -64,14 +62,8 @@ impl<'ast> GroupImpl<'ast> {
         })
     }
 
-    /// The impl block retargeted at the trait's helper trait, with the
-    /// state bound to the group's associated type.
-    ///
     /// `impl A for T -> impl __a_helper_mod::AHelper<Group> for T where
     /// T::State: __a_helper_mod::Member<Group>`
-    ///
-    /// Rejects an `Assoc = Type` bound on the state parameter, since the
-    /// group already sets the associated type.
     pub fn create_group_impl(&self) -> syn::Result<TokenStream> {
         let group_name = self.group_name;
 
@@ -124,8 +116,7 @@ impl<'ast> GroupImpl<'ast> {
     }
 }
 
-/// `#[group_impl]`'s arguments: the group's name, then an optional
-/// `state = <Ident>`.
+/// `#[group_impl(Group, state = S)]`
 pub struct GroupImplArgs {
     group: Ident,
     state: Option<Ident>,

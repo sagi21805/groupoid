@@ -2,33 +2,18 @@
 
 use crate::{State, WithState};
 
-/// Bit-reinterpretation transitions between [`State`]s of the same
-/// [`WithState`] container type.
-///
-/// Each method takes the target state and returns
-/// [`TransmutableState::Target`], `Self` with that state swapped in:
+/// Bit-reinterprets a container as the same container in another
+/// [`State`].
 ///
 /// ```ignore
-/// #[typestate(state = S, unsafe_transmute = true)]
-/// struct Wrap<S: Meta> { value: S::Value }
-///
 /// let big = unsafe { small.transmute_state::<Big>() }; // Wrap<Small> -> Wrap<Big>
 /// ```
-///
-/// `#[typestate(unsafe_transmute = true)]` implements
-/// [`TransmutableState`] only for target states whose projections share
-/// the source's `#[size(N)]` and alignment.
 pub trait Isomorphic: WithState + Sized {
-    /// Bit-reinterprets `self` as the same container type with the
-    /// [`State`] `To` plugged in.
+    /// Bit-reinterprets `self` in state `To`.
     ///
     /// # Safety
     ///
-    /// The caller must ensure the bit pattern of `Self` is a valid
-    /// instance of the target at every byte the two types share.
-    ///
-    /// Size equality is guaranteed by the [`TransmutableState`] bound,
-    /// and rechecked by [`TransmutableState::LAYOUT_CHECK`].
+    /// The bits of `self` must be a valid instance of the target.
     unsafe fn transmute_state<To: State>(self) -> Self::Target
     where
         Self: TransmutableState<To>,
@@ -41,17 +26,11 @@ pub trait Isomorphic: WithState + Sized {
         unsafe { core::mem::transmute_copy::<Self, Self::Target>(&*value) }
     }
 
-    /// Bit-reinterprets `&self` as a reference to the same container type
-    /// with the [`State`] `To` plugged in.
+    /// Bit-reinterprets `&self` in state `To`.
     ///
     /// # Safety
     ///
-    /// The caller must ensure the bit pattern of `Self` is a valid
-    /// instance of the target at every byte the two types share.
-    ///
-    /// Size and alignment equality is guaranteed by the
-    /// [`TransmutableState`] bound, and rechecked by
-    /// [`TransmutableState::LAYOUT_CHECK`].
+    /// The bits of `self` must be a valid instance of the target.
     unsafe fn transmute_state_ref<To: State>(&self) -> &Self::Target
     where
         Self: TransmutableState<To>,
@@ -62,17 +41,11 @@ pub trait Isomorphic: WithState + Sized {
         unsafe { &*(self as *const Self as *const Self::Target) }
     }
 
-    /// Bit-reinterprets `&mut self` as a mutable reference to the same
-    /// container type with the [`State`] `To` plugged in.
+    /// Bit-reinterprets `&mut self` in state `To`.
     ///
     /// # Safety
     ///
-    /// The caller must ensure the bit pattern of `Self` is a valid
-    /// instance of the target at every byte the two types share.
-    ///
-    /// Size and alignment equality is guaranteed by the
-    /// [`TransmutableState`] bound, and rechecked by
-    /// [`TransmutableState::LAYOUT_CHECK`].
+    /// The bits of `self` must be a valid instance of the target.
     unsafe fn transmute_state_mut<To: State>(
         &mut self,
     ) -> &mut Self::Target
@@ -88,8 +61,7 @@ pub trait Isomorphic: WithState + Sized {
 
 impl<T: WithState> Isomorphic for T {}
 
-/// Marks that `Self` can have the [`State`] `To` plugged in, in place of
-/// its own, without changing its layout.
+/// `Self` keeps its layout in state `To`.
 ///
 /// # Safety
 ///
@@ -110,10 +82,6 @@ pub unsafe trait TransmutableState<To: State>:
 
     /// Compile-time check that `Self` and [`Target`](Self::Target) share
     /// a size and alignment.
-    ///
-    /// ```ignore
-    /// const _: () = <Wrap<Small> as TransmutableState<Big>>::LAYOUT_CHECK;
-    /// ```
     const LAYOUT_CHECK: () = {
         assert!(
             core::mem::size_of::<Self>()

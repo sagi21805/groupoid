@@ -16,29 +16,22 @@ use crate::syn_ext::{
 };
 
 pub(crate) struct TypeState {
-    /// The original struct with the state parameter's bounds extended
-    /// with `::groupoid::State`, and its `repr` settled when transmute is
-    /// on.
+    /// The struct with the state bounded by `State`.
     item_struct: ItemStruct,
     /// The generic type parameter carrying the state.
     state: Ident,
-    /// The state being moved to, with the state parameter's bounds.
+    /// The target state, with the state's bounds.
     target_state: TypeParam,
-    /// The struct's type in the target state.
-    ///
     /// `Wrap<S> -> Wrap<__GroupoidTargetState>`
     target_ty: TokenStream,
     /// Whether `TransmutableState` is derived too.
     transmute: Transmute,
-    /// The one associated type the fields project through the state
-    /// (`Value` in `S::Value`), if any.
+    /// `Value` in `S::Value`.
     projection: Option<Ident>,
 }
 
 impl TypeState {
-    /// Resolves the state parameter, bounds it by `::groupoid::State`,
-    /// checks that `morph_with` can peel every field, and checks the
-    /// struct's layout when transmute is on.
+    /// Resolves the state and validates the fields.
     pub(crate) fn new(
         args: TypeStateArgs,
         mut item_struct: ItemStruct,
@@ -121,9 +114,8 @@ impl TypeState {
         }
     }
 
-    /// `TransmutableState<S2>` for `Struct<S>` with `Target = Struct<S2>`,
-    /// for every `S2` with `S`'s bounds whose projections match `S`'s
-    /// layout.
+    /// `TransmutableState<S2>` for `Struct<S>`, for every `S2` with a
+    /// matching layout.
     fn transmutable_state_impl(&self, align: &Alignment) -> TokenStream {
         let struct_ident = &self.item_struct.ident;
         let target_state = &self.target_state.ident;
@@ -143,10 +135,8 @@ impl TypeState {
         let (impl_generics, _, where_clause) = generics.split_for_impl();
 
         quote! {
-            // SAFETY: `Self` and `Target` differ only in the state, every
-            // field is a projection, a ZST or state-independent, and the
-            // where-clause gives every projection one size and alignment
-            // in both states, so `repr(C)` lays them out identically.
+            // SAFETY: the where-clause gives every projection one layout
+            // in both states, and the `repr` fixes the field order.
             unsafe impl #impl_generics ::groupoid::TransmutableState<#target_state>
                 for #struct_ident #ty_generics #where_clause
             {
@@ -155,17 +145,8 @@ impl TypeState {
         }
     }
 
-    /// Requires `projection` to have one size in both states, and one
-    /// alignment unless `align = N` forces it.
-    ///
-    /// `S2::__GroupoidLayoutP: SameLayout<S::__GroupoidLayoutP>`, or
-    /// `<S2::__GroupoidLayoutP as TypeLayout>::Size:
-    /// SameSize<<S::__GroupoidLayoutP as TypeLayout>::Size>` under
-    /// `align = N`
-    ///
-    /// The target state goes on the left: method lookup checks
-    /// `transmute_state`'s bounds before the turbofish names `S2`, and
-    /// fails with no custom message on a bound it can already decide.
+    /// `S2::__GroupoidLayoutP: SameLayout<S::__GroupoidLayoutP>`, or only
+    /// `SameSize` under `align = N`.
     fn layout_predicate(
         &self,
         projection: &Ident,
@@ -186,8 +167,7 @@ impl TypeState {
         }
     }
 
-    /// The inherent `morph_with` method, which rebuilds the struct for
-    /// another state by value.
+    /// The inherent `morph_with` method.
     fn morph_impl(&self, projection: &Ident) -> TokenStream {
         let struct_ident = &self.item_struct.ident;
         let state = &self.state;
@@ -219,11 +199,7 @@ impl TypeState {
         quote! {
             impl #impl_generics #struct_ident #ty_generics #where_clause {
                 /// Rebuilds `self` for the target state, converting every
-                /// projection through the state with `f`.
-                ///
-                /// Tuples are rebuilt in place, and every other wrapper goes
-                /// through `groupoid::Morph`, one layer at a time. Fields
-                /// that don't mention the state move unchanged.
+                /// projection with `f`.
                 pub fn morph_with #with_impl_generics (
                     self,
                     mut #f: impl FnMut(#state::#projection)
@@ -235,8 +211,8 @@ impl TypeState {
         }
     }
 
-    /// The struct literal rebuilding `self` field by field for the target
-    /// state, pushing the `Morph` bounds it needs onto `predicates`.
+    /// The struct literal rebuilding `self`, pushing its `Morph` bounds
+    /// onto `predicates`.
     fn morph_body(
         &self,
         ctx: &MorphCtx,
@@ -280,9 +256,7 @@ impl TypeState {
     }
 }
 
-/// `#[typestate]`'s arguments: an optional `state = <Ident>`, an optional
-/// `unsafe_transmute = <bool>` and an optional `align = <integer
-/// literal>`, in any order, each at most once.
+/// `#[typestate(state = S, unsafe_transmute = true, align = N)]`
 pub(crate) struct TypeStateArgs {
     state: Option<Ident>,
     transmute: Transmute,
@@ -334,27 +308,22 @@ impl Parse for TypeStateArgs {
     }
 }
 
-/// Whether `#[typestate]` also derives the in-place `transmute_state`.
+/// Whether `#[typestate]` implements `TransmutableState`.
 pub(crate) enum Transmute {
-    /// Default, only `WithState` and `morph_with`.
     Off,
-    /// `unsafe_transmute = true`, additionally implements
-    /// `TransmutableState`.
     On(Alignment),
 }
 
-/// How the container's alignment is pinned.
+/// The container's alignment.
 pub(crate) enum Alignment {
-    /// No `align` argument.
     Inferred,
-    /// `align = N`. The container is forced to `#[repr(align(N))]`.
+    /// `align = N`
     Forced(LitInt),
 }
 
 #[ext]
 impl ItemStruct {
-    /// The generic type parameter named `state`, or the only one when no
-    /// name is given.
+    /// The type parameter named `state`, or the only one.
     fn state_param(
         &mut self,
         state: Option<&Ident>,
@@ -391,8 +360,7 @@ impl ItemStruct {
             })
     }
 
-    /// The one associated type the fields project through the state
-    /// (`Value` in `S::Value`), at any depth.
+    /// `Value` in every `S::Value` in the fields.
     fn unique_projection(
         &self,
         state: &Ident,
@@ -419,8 +387,7 @@ impl ItemStruct {
         Ok(Some(first))
     }
 
-    /// Checks that every wrapper `morph_with` peels has one generic
-    /// argument to morph.
+    /// Checks that every wrapper has one state-dependent argument.
     fn require_single_state_args(&self, state: &Ident) -> syn::Result<()> {
         for field in self.fields.iter() {
             if let Some(layer) = field.ty.ambiguous_layer(state) {
@@ -439,7 +406,7 @@ impl ItemStruct {
         Ok(())
     }
 
-    /// Checks that every field's layout can be pinned across states.
+    /// Checks that every field keeps its layout across states.
     fn require_transmutable_layout(
         &self,
         state: &Ident,
@@ -461,8 +428,7 @@ impl ItemStruct {
         Ok(())
     }
 
-    /// Guarantees the struct's layout with `#[repr(C | transparent)]`, and
-    /// adds `#[repr(align(N))]` for a forced alignment.
+    /// Adds `#[repr(C)]` if missing, and `#[repr(align(N))]` when forced.
     fn ensure_repr(&mut self, align: &Alignment) -> syn::Result<()> {
         let reprs: Vec<&Attribute> = self
             .attrs
@@ -491,9 +457,6 @@ impl ItemStruct {
         Ok(())
     }
 
-    /// This struct's type with the `state` parameter swapped for
-    /// `target_state`.
-    ///
     /// `Wrap<S> -> Wrap<target_state>`
     fn with_state(
         &self,
@@ -520,8 +483,7 @@ impl ItemStruct {
 
 #[ext]
 impl Field {
-    /// Whether this field is a bare `S::Value`, a ZST, or doesn't mention
-    /// the state. `Option<S::Value>` is not.
+    /// Whether this field is `S::Value`, a ZST, or state-independent.
     fn is_transmutable(&self, state: &Ident) -> bool {
         self.ty.state_projection(state).is_some()
             || self.ty.is_zst()
@@ -531,8 +493,6 @@ impl Field {
 
 #[ext]
 impl Type {
-    /// The `Assoc` of every `S::Assoc` inside this type.
-    ///
     /// `Option<S::Value> -> [Value]`
     fn projections(&self, state: &Ident) -> Vec<Ident> {
         let mut projections = Projections {
@@ -543,9 +503,8 @@ impl Type {
         projections.found
     }
 
-    /// The expression rebuilding `expr`, a value of this type, for the
-    /// target state. Pushes the `Morph` bounds it needs onto
-    /// `predicates`.
+    /// The expression rebuilding `expr` for the target state, pushing its
+    /// `Morph` bounds onto `predicates`.
     fn morph_expr(
         &self,
         ctx: &MorphCtx,
@@ -619,9 +578,6 @@ impl Type {
             .map_or(MorphShape::Opaque, MorphShape::Wrapped)
     }
 
-    /// The one generic argument that mentions the state, or the element
-    /// of an array.
-    ///
     /// `Option<[S::Value; 2]> -> [S::Value; 2]`
     fn morph_inner(&self, state: &Ident) -> Option<&Type> {
         if let Type::Array(array) = self.peeled() {
@@ -634,9 +590,6 @@ impl Type {
         }
     }
 
-    /// The distinct generic arguments of this path type that mention the
-    /// state.
-    ///
     /// `Result<S::Value, [S::Value; 2]> -> [S::Value, [S::Value; 2]]`
     fn state_args(&self, state: &Ident) -> Vec<&Type> {
         let Type::Path(TypePath {
@@ -663,8 +616,8 @@ impl Type {
         found
     }
 
-    /// The first layer `morph_with` would reach that has several
-    /// different generic arguments mentioning the state.
+    /// The first layer with several generic arguments that mention the
+    /// state, which `morph_with` can't peel since `Morph` maps only one.
     ///
     /// `Option<Result<S::Value, [S::Value; 2]>> -> Result<..>`
     fn ambiguous_layer(&self, state: &Ident) -> Option<&Type> {
@@ -682,8 +635,7 @@ impl Type {
         }
     }
 
-    /// A `Morph<src, dst>` call on `expr` with the closure `convert`,
-    /// and the bound it needs.
+    /// A `Morph` call on `expr` and the bound it needs.
     fn morph_call(
         &self,
         expr: TokenStream,
@@ -702,7 +654,7 @@ impl Type {
         quote!(<#self as ::groupoid::Morph<#src, #dst>>::morph(#expr, &mut #convert))
     }
 
-    /// `Value` when this type is `S::Value`.
+    /// `Assoc` when this type is `S::Assoc, or (S::Assoc)`.
     fn state_projection(&self, state: &Ident) -> Option<&Ident> {
         let Type::Path(TypePath {
             qself: None,
@@ -729,7 +681,7 @@ impl Type {
 
 #[ext]
 impl TypeTuple {
-    /// `(T, ..)`, destructured and rebuilt element by element.
+    /// `(T, ..)` rebuilt element by element.
     fn morph_tuple(
         &self,
         ctx: &MorphCtx,

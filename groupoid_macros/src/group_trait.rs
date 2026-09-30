@@ -48,10 +48,8 @@ impl<'ast> GroupTrait<'ast> {
         }
     }
 
-    /// The trait, its hidden helper trait with the default bodies, and a
-    /// blanket impl that forwards every method to the helper impl of the
-    /// state's group. The helper module also aliases the template's
-    /// `{Template}GroupMember` as `Member`, for `#[group_impl]` to name.
+    /// The trait, its helper module, and a blanket impl forwarding to the
+    /// helper impl of the state's group.
     pub fn generate_group_trait(&self) -> syn::Result<TokenStream> {
         let GroupTrait {
             marker_trait,
@@ -184,8 +182,7 @@ mod kw {
 
 #[ext]
 impl Signature {
-    /// The arguments to forward to the helper trait: `self` and each
-    /// argument's identifier.
+    /// `self` and each argument's name.
     fn forwarded_args(&self) -> syn::Result<Vec<TokenStream>> {
         if let Some(asyncness) = &self.asyncness {
             return Err(syn::Error::new_spanned(

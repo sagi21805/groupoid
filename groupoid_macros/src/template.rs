@@ -11,11 +11,8 @@ impl<'ast> Template<'ast> {
         Template { inner }
     }
 
-    /// The trait with a `Marker` associated type, a hidden
-    /// `__GroupoidLayout{Assoc}` associated type that `#[group]` sets, and
-    /// a `State` supertrait, followed by its `{Trait}GroupMarker` trait
-    /// and its `{Trait}GroupMember<G>` trait, which every state of
-    /// group `G` implements.
+    /// The trait plus its `{Trait}GroupMarker` and `{Trait}GroupMember`
+    /// traits.
     pub fn create_group_marker(&self) -> syn::Result<TokenStream> {
         let vis = &self.inner.vis;
         let trait_ident = &self.inner.ident;
@@ -32,8 +29,6 @@ impl<'ast> Template<'ast> {
             })
             .collect();
 
-        // One associated type keeps `#[size(N)]` in `#[group]`
-        // unambiguous.
         let [type_definition] = *type_definitions.as_slice() else {
             return Err(syn::Error::new_spanned(
                 &self.inner.ident,
