@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/sagi21805/typestate-groups/compare/typestate-groups-v0.2.0...typestate-groups-v0.2.1) - 2026-10-01
+
+### Other
+
+- set readme install version to 0.2
+- point repository links to typestate-groups
+
 ### Changed
 
 - Renamed the crates from `groupoid` and `groupoid_macros` to
