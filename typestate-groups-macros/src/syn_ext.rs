@@ -9,6 +9,7 @@ use syn::{
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     visit::Visit,
+    visit_mut::VisitMut,
 };
 
 #[ext]
@@ -96,15 +97,6 @@ pub(crate) impl Generics {
 
     /// `S: Meta<Value = String>` -> `Value = String`
     fn assoc_type_binding(&self, param: &Ident) -> Option<&AssocType> {
-        #[derive(Default)]
-        struct Finder<'ast>(Option<&'ast AssocType>);
-
-        impl<'ast> Visit<'ast> for Finder<'ast> {
-            fn visit_assoc_type(&mut self, assoc: &'ast AssocType) {
-                self.0.get_or_insert(assoc);
-            }
-        }
-
         let inline = self
             .type_params()
             .filter(|tp| tp.ident == *param)
@@ -117,10 +109,20 @@ pub(crate) impl Generics {
             .flatten();
 
         inline.chain(in_where).find_map(|bound| {
-            let mut finder = Finder::default();
-            finder.visit_type_param_bound(bound);
-            finder.0
+            let mut first = FirstAssocType::default();
+            first.visit_type_param_bound(bound);
+            first.0
         })
+    }
+}
+
+/// Keeps the first `Assoc = Type` binding it visits.
+#[derive(Default)]
+struct FirstAssocType<'ast>(Option<&'ast AssocType>);
+
+impl<'ast> Visit<'ast> for FirstAssocType<'ast> {
+    fn visit_assoc_type(&mut self, assoc: &'ast AssocType) {
+        self.0.get_or_insert(assoc);
     }
 }
 
@@ -143,6 +145,38 @@ pub(crate) impl WherePredicate {
                 ..
             }) if path.is_ident(param) => Some(bounds),
             _ => None,
+        }
+    }
+
+    /// This predicate with `from` renamed to `to`, when it mentions
+    /// `from`.
+    ///
+    /// `Option<S>: Debug` -> `Option<T>: Debug`
+    fn renamed(&self, from: &Ident, to: &Ident) -> Option<WherePredicate> {
+        let mut predicate = self.clone();
+        let mut rename = Rename {
+            from,
+            to,
+            found: false,
+        };
+        rename.visit_where_predicate_mut(&mut predicate);
+        rename.found.then_some(predicate)
+    }
+}
+
+/// Renames every `from` it visits to `to`, and records whether it found
+/// one.
+struct Rename<'a> {
+    from: &'a Ident,
+    to: &'a Ident,
+    found: bool,
+}
+
+impl VisitMut for Rename<'_> {
+    fn visit_ident_mut(&mut self, ident: &mut Ident) {
+        if ident == self.from {
+            *ident = self.to.clone();
+            self.found = true;
         }
     }
 }

@@ -12,6 +12,7 @@ use syn::{
 
 use crate::syn_ext::{
     AttributeExt as _, GenericsExt as _, OptionExt as _, TypeExt as _,
+    WherePredicateExt as _,
 };
 
 pub(crate) struct TypeState {
@@ -19,7 +20,7 @@ pub(crate) struct TypeState {
     item_struct: ItemStruct,
     /// The generic type parameter carrying the state.
     state: Ident,
-    /// The target state, with the state's bounds.
+    /// The target state, with the state's inline bounds.
     target_state: TypeParam,
     /// `Wrap<S> -> Wrap<__TypestateGroupsTargetState>`
     target_ty: TokenStream,
@@ -136,12 +137,28 @@ impl TypeState {
         }
     }
 
-    /// The struct's generics plus the target state.
+    /// The struct's generics plus the target state, which gets a copy of
+    /// every `where` predicate on the state.
+    ///
+    /// `where S: Debug` -> `where S: Debug, S2: Debug`
     fn target_generics(&self) -> Generics {
         let mut generics = self.item_struct.generics.clone();
+        let target_predicates: Vec<WherePredicate> = generics
+            .where_clause
+            .iter()
+            .flat_map(|clause| &clause.predicates)
+            .filter_map(|predicate| {
+                predicate.renamed(&self.state, &self.target_state.ident)
+            })
+            .collect();
+
         generics
             .params
             .push(GenericParam::Type(self.target_state.clone()));
+        generics
+            .make_where_clause()
+            .predicates
+            .extend(target_predicates);
         generics
     }
 
