@@ -110,7 +110,8 @@ carries an address and a port, and moves through three states:
 - `Routed` holds native integers of the same sizes.
 - `Logged` holds an `Ipv4Addr` and a host-order port.
 
-`Received` to `Routed` reinterprets the bits of both fields in place.
+`Received` to `Routed` reinterprets the bits of both fields in place with
+`cast_state`.
 `Routed` to `Logged` builds new values, so it goes through `MorphFrom`.
 
 ```rust
@@ -179,9 +180,7 @@ fn main() {
         ttl: 64,
     };
 
-    // SAFETY: every bit pattern of `[u8; 4]` and `[u8; 2]` is a valid
-    // `u32` and `u16`.
-    let header = unsafe { header.transmute_state::<Routed>() };
+    let header = header.cast_state::<Routed>();
     assert_eq!(header.dst, u32::from_ne_bytes([10, 0, 0, 2]));
 
     let header = header.morph::<Logged>();
@@ -191,8 +190,8 @@ fn main() {
 ```
 
 `#[size(N)]` pins a type's size, and `unsafe_transmute = true` generates
-`transmute_state` for every pair of states whose fields line up. Both
-checks run at compile time. Change `Routed`'s address to `u64` and the
+`cast_state` and `transmute_state` for every pair of states whose fields
+line up. Both checks run at compile time. Change `Routed`'s address to `u64` and the
 build fails with:
 
 ```text
@@ -207,6 +206,23 @@ Transmuting straight to `Logged` fails too, with `add #[size(N)] to the
 associated type set to Ipv4Addr in #[group(Typed)] to transmute it`.
 Drop `align = 4` and the error asks for it back, since `[u8; 4]` and
 `u32` disagree on alignment.
+
+`cast_state` also checks that every field which changes type holds bits
+valid in the new state, using [`zerocopy`](https://docs.rs/zerocopy): the
+old type must be `IntoBytes` (no padding) and the new one `FromBytes`
+(every bit pattern valid). Casting a `u8` into a `bool` fails with
+``convert with `morph`: `u8` may hold bits that are not a valid `bool` ``.
+Derive those traits on your own field types to cast them.
+
+| Method | Each changed field also needs |
+|---|---|
+| `cast_state` | nothing more |
+| `cast_state_mut` | the same check from the new type back to the old |
+| `cast_state_ref` | `zerocopy::Immutable` on both types, so no `Cell` |
+
+When a field type is valid only for some values, such as `u32` into
+`char`, use `unsafe { transmute_state() }` and run `cargo miri test` on
+the code that calls it.
 
 `morph::<Target>()` calls your `MorphFrom` impl. One impl can be generic
 over both states, and a container can morph its fields with their own

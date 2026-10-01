@@ -23,7 +23,7 @@ pub(crate) struct TypeState {
     target_state: TypeParam,
     /// `Wrap<S> -> Wrap<__TypestateGroupsTargetState>`
     target_ty: TokenStream,
-    /// Whether `TransmutableState` is derived too.
+    /// Whether `TransmutableState` and `CastableState` are derived too.
     transmute: Transmute,
     /// The distinct associated types the fields project through the
     /// state (`Value` in `S::Value`), in order of first appearance.
@@ -78,13 +78,20 @@ impl TypeState {
     pub(crate) fn generate_typestate_impls(&self) -> TokenStream {
         let item_struct = &self.item_struct;
         let with_state_impl = self.with_state_impl();
-        let transmutable_state_impl = match &self.transmute {
+        let restate_impl = self.restate_impl();
+        let transmute_impls = match &self.transmute {
             Transmute::On(align) => {
-                Some(self.transmutable_state_impl(align))
+                let transmutable_state_impl =
+                    self.transmutable_state_impl(align);
+                let castable_state_impls = self.castable_state_impls();
+                Some(quote! {
+                    #transmutable_state_impl
+
+                    #castable_state_impls
+                })
             }
             Transmute::Off => None,
         };
-        let restate_impl = self.restate_impl();
 
         quote! {
             #item_struct
@@ -93,7 +100,7 @@ impl TypeState {
 
             #restate_impl
 
-            #transmutable_state_impl
+            #transmute_impls
         }
     }
 
@@ -164,6 +171,69 @@ impl TypeState {
                 for #struct_ident #ty_generics #where_clause
             {
                 #layout_check
+            }
+        }
+    }
+
+    /// `CastableState<S2, A>` for `Struct<S>`, for every access `A` and
+    /// every `S2` whose projections stay valid under it.
+    ///
+    /// `Owned` needs `S2::P: CastFrom<S::P>` per projection, `Shared` adds
+    /// `S2::P: CastRefFrom<S::P>` and `Exclusive` adds
+    /// `S::P: CastFrom<S2::P>`.
+    fn castable_state_impls(&self) -> TokenStream {
+        let struct_ident = &self.item_struct.ident;
+        let state = &self.state;
+        let target_state = &self.target_state.ident;
+        let (_, ty_generics, _) =
+            self.item_struct.generics.split_for_impl();
+        let src: Vec<_> = self
+            .projections
+            .iter()
+            .map(|projection| quote!(#state::#projection))
+            .collect();
+        let dst: Vec<_> = self
+            .projections
+            .iter()
+            .map(|projection| quote!(#target_state::#projection))
+            .collect();
+
+        let mut generics = self.target_generics();
+        let predicates = &mut generics.make_where_clause().predicates;
+        predicates.push(parse_quote! {
+            #struct_ident #ty_generics:
+                ::typestate_groups::TransmutableState<#target_state>
+        });
+        predicates.extend(src.iter().zip(&dst).map(
+            |(src, dst)| -> WherePredicate {
+                parse_quote!(#dst: ::typestate_groups::CastFrom<#src>)
+            },
+        ));
+        let (impl_generics, _, where_clause) = generics.split_for_impl();
+
+        quote! {
+            // SAFETY: the where-clause proves every projection valid in
+            // the target state when owned, and every other field keeps
+            // its type.
+            unsafe impl #impl_generics ::typestate_groups::CastableState<#target_state, ::typestate_groups::Owned>
+                for #struct_ident #ty_generics #where_clause
+            {
+            }
+
+            // SAFETY: as for `Owned`, and every projection can also be
+            // read in place as the target type.
+            unsafe impl #impl_generics ::typestate_groups::CastableState<#target_state, ::typestate_groups::Shared>
+                for #struct_ident #ty_generics #where_clause,
+                    #(#dst: ::typestate_groups::CastRefFrom<#src>,)*
+            {
+            }
+
+            // SAFETY: as for `Owned`, and every value written through
+            // the target type is valid in the source state.
+            unsafe impl #impl_generics ::typestate_groups::CastableState<#target_state, ::typestate_groups::Exclusive>
+                for #struct_ident #ty_generics #where_clause,
+                    #(#src: ::typestate_groups::CastFrom<#dst>,)*
+            {
             }
         }
     }

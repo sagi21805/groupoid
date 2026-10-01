@@ -23,3 +23,4 @@ syn = { version = "3.0.5", features = ["full", "extra-traits", "visit"] }
 trybuild = "1.0.121"
 pollster = "1.0.1"
 typestate-groups = { path = "../typestate-groups" }
+zerocopy = { version = "0.8.59", features = ["derive"] }

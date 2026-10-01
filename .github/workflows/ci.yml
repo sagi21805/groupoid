@@ -50,6 +50,20 @@ jobs:
       - run: cargo build --workspace --all-features
       - run: cargo test --workspace --all-features
 
+  miri:
+    name: Miri
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo +nightly miri test --workspace
+      - run: cargo +nightly miri test --workspace
+        env:
+          MIRIFLAGS: -Zmiri-tree-borrows
+
   msrv:
     name: MSRV
     runs-on: ubuntu-latest

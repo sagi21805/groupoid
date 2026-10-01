@@ -12,3 +12,4 @@ readme = "../README.md"
 
 [dependencies]
 typestate-groups-macros = { path = "../typestate-groups-macros", version = "0.1.3" }
+zerocopy = "0.8.59"
