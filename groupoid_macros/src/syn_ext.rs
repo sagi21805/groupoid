@@ -1,6 +1,4 @@
-//! Extension methods on `syn` and `proc_macro2` types that know nothing
-//! about groupoid itself: syntax queries and token rewrites any macro
-//! could use.
+//! Project-agnostic extensions on `syn` and `proc_macro2` types.
 
 use extend::ext;
 use proc_macro2::{TokenStream, TokenTree};
@@ -15,8 +13,7 @@ use syn::{
 
 #[ext]
 pub(crate) impl Type {
-    /// This type with its parentheses, and the invisible groups a
-    /// `macro_rules!` `$ty` substitution wraps it in, stripped off.
+    /// This type without parentheses and invisible groups.
     fn peeled(&self) -> &Type {
         match self {
             Type::Paren(paren) => paren.elem.peeled(),
@@ -25,8 +22,7 @@ pub(crate) impl Type {
         }
     }
 
-    /// A fresh value of this type, when its spelling shows it to be a ZST:
-    /// `()` or `PhantomData<..>`.
+    /// A value of this type when it's `()` or `PhantomData<..>`.
     fn zst_value(&self) -> Option<TokenStream> {
         let path = match self.peeled() {
             Type::Tuple(tuple) => {
@@ -50,13 +46,6 @@ pub(crate) impl Type {
         self.zst_value().is_some()
     }
 
-    /// This type's tokens with every `from` that heads a path replaced by
-    /// `to`, e.g. `Pair<S::Value>` ->
-    /// `Pair<__GroupoidTargetState::Value>`.
-    fn with_ident_renamed(&self, from: &Ident, to: &Ident) -> TokenStream {
-        self.to_token_stream().rename_ident(from, to)
-    }
-
     /// Whether `ident` appears anywhere inside this type.
     fn mentions_ident(&self, ident: &Ident) -> bool {
         self.to_token_stream().mentions_ident(ident)
@@ -65,9 +54,7 @@ pub(crate) impl Type {
 
 #[ext]
 pub(crate) impl Path {
-    /// Whether this path names `item` from std's `module`, whether spelled
-    /// bare (`Option`), through the module (`option::Option`) or through a
-    /// root crate (`core::option::Option`).
+    /// Whether this path names std's `module::item`, with any prefix.
     fn is_std_item(&self, module: &str, item: &str) -> bool {
         let idents: Vec<&Ident> =
             self.segments.iter().map(|s| &s.ident).collect();
@@ -87,8 +74,7 @@ pub(crate) impl Path {
             }
     }
 
-    /// This path with its last identifier replaced by `rename` of it,
-    /// e.g. `a::Meta` -> `a::MetaGroupMarker`.
+    /// `a::Meta` -> `a::MetaGroupMarker`
     fn with_last_ident(
         &self,
         rename: impl FnOnce(&Ident) -> Ident,
@@ -108,9 +94,7 @@ pub(crate) impl Generics {
         self.type_params_mut().find(|tp| tp.ident == *ident)
     }
 
-    /// The first `Assoc = Type` binding in a bound on the type parameter
-    /// `param`, inline or in the `where` clause, e.g. `Value = String` in
-    /// `S: Meta<Value = String>`.
+    /// `S: Meta<Value = String>` -> `Value = String`
     fn assoc_type_binding(&self, param: &Ident) -> Option<&AssocType> {
         #[derive(Default)]
         struct Finder<'ast>(Option<&'ast AssocType>);
@@ -142,8 +126,9 @@ pub(crate) impl Generics {
 
 #[ext]
 pub(crate) impl WherePredicate {
-    /// This predicate's bounds, when it bounds the bare type `param`, as
-    /// in `S: Meta`.
+    /// This predicate's bounds when it bounds `param`.
+    ///
+    /// `S: Meta + Clone` -> `Meta + Clone`
     fn bounds_on(
         &self,
         param: &Ident,
@@ -177,8 +162,7 @@ pub(crate) impl Attribute {
 
 #[ext(name = OptionExt)]
 pub(crate) impl<T: Parse> Option<T> {
-    /// Parses `= <value>` for the argument `key` into this slot, rejecting
-    /// a second assignment.
+    /// Parses `= <value>` into this slot, rejecting duplicates.
     fn parse_once(
         &mut self,
         key: &Ident,
@@ -196,37 +180,9 @@ pub(crate) impl<T: Parse> Option<T> {
     }
 }
 
-/// Token scans behind the `Type` methods of the same names.
+/// Token scan behind the `Type` method of the same name.
 #[ext]
 impl TokenStream {
-    /// These tokens with every `from` not preceded by `:` replaced by
-    /// `to`.
-    fn rename_ident(self, from: &Ident, to: &Ident) -> TokenStream {
-        let mut after_colon = false;
-        self.into_iter()
-            .map(|tt| {
-                let renamed = match tt {
-                    TokenTree::Ident(ref ident)
-                        if ident == from && !after_colon =>
-                    {
-                        TokenTree::Ident(to.clone())
-                    }
-                    TokenTree::Group(group) => {
-                        let mut renamed = proc_macro2::Group::new(
-                            group.delimiter(),
-                            group.stream().rename_ident(from, to),
-                        );
-                        renamed.set_span(group.span());
-                        TokenTree::Group(renamed)
-                    }
-                    tt => tt,
-                };
-                after_colon = renamed.is_colon();
-                renamed
-            })
-            .collect()
-    }
-
     /// Whether `ident` appears anywhere in these tokens.
     fn mentions_ident(self, ident: &Ident) -> bool {
         self.into_iter().any(|tt| match tt {
@@ -234,13 +190,5 @@ impl TokenStream {
             TokenTree::Group(g) => g.stream().mentions_ident(ident),
             _ => false,
         })
-    }
-}
-
-#[ext]
-impl TokenTree {
-    /// Whether this token is one `:`.
-    fn is_colon(&self) -> bool {
-        matches!(self, TokenTree::Punct(p) if p.as_char() == ':')
     }
 }

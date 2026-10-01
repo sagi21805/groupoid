@@ -23,9 +23,12 @@ impl<'ast> Group<'ast> {
         let states = self.states()?;
 
         let mut items: Vec<ImplItem> = self.inner_impl.items.clone();
-        let group_impls = self.sized_group_impls(&mut items)?;
+        let layouts = self.layouts(&mut items)?;
+        let size_asserts = layouts.iter().map(|layout| &layout.assert);
+        let layout_items = layouts.iter().map(|layout| &layout.item);
 
         let items_tokens = quote! { #(#items)* };
+        let layout_tokens = quote! { #(#layout_items)* };
         let types = items
             .iter()
             .filter(|item| matches!(item, ImplItem::Type(_)));
@@ -37,7 +40,7 @@ impl<'ast> Group<'ast> {
 
             impl ::groupoid::Group for #group_name {}
 
-            #group_impls
+            #(#size_asserts)*
 
             impl #marker_trait for #group_name {
                 #(#types)*
@@ -47,13 +50,13 @@ impl<'ast> Group<'ast> {
                 impl #trait_name for #states {
                     #items_tokens
                     type Marker = #group_name;
+                    #layout_tokens
                 }
             )*
         })
     }
 
-    /// The implemented trait, e.g. `Testing` in
-    /// `impl Testing for (StateA, StateB)`.
+    /// `impl Testing for (StateA, StateB)` -> `Testing`
     fn trait_name(&self) -> syn::Result<&'ast Ident> {
         let (trait_path, _) =
             self.inner_impl.trait_.as_ref().ok_or_else(|| {
@@ -73,8 +76,6 @@ impl<'ast> Group<'ast> {
         })
     }
 
-    /// The states in the `Self` tuple.
-    ///
     /// `(StateA, StateB) -> [StateA, StateB]`
     fn states(&self) -> syn::Result<Vec<&'ast Ident>> {
         let Type::Tuple(tup) = self.inner_impl.self_ty.as_ref() else {
@@ -103,39 +104,71 @@ impl<'ast> Group<'ast> {
             .collect()
     }
 
-    /// The size assertion and `SizedGroup`/`AlignedGroup` impls, or
-    /// nothing when the associated type has no `#[size(N)]`. Strips the
-    /// attribute from `items`.
-    fn sized_group_impls(
+    /// The layout of every associated type, stripping `#[size(N)]`.
+    fn layouts(
         &self,
         items: &mut [ImplItem],
-    ) -> syn::Result<TokenStream> {
-        let Some(impl_ty) = items
+    ) -> syn::Result<Vec<TypeLayout>> {
+        items
             .iter_mut()
-            .find_map(|item| match item {
-                ImplItem::Type(impl_ty) => Some(impl_ty),
+            .filter_map(|item| match item {
+                ImplItem::Type(impl_ty) => {
+                    Some(TypeLayout::new(impl_ty, self.group_name))
+                }
                 _ => None,
             })
-            .filter(|impl_ty| !impl_ty.attrs.is_empty())
-        else {
-            return Ok(quote! {});
-        };
+            .collect()
+    }
+}
+
+/// An associated type's layout item and size assertion.
+///
+/// ```ignore
+/// #[size(4)] type Value = u32;
+/// // ->
+/// const _: () = assert!(size_of::<u32>() == 4, ..);
+/// type __GroupoidLayoutValue = PinnedTypeLayout<G, u32, 4, { align_of::<u32>() }>;
+///
+/// type Value = String;
+/// // ->
+/// type __GroupoidLayoutValue = UnpinnedTypeLayout<G, String>;
+/// ```
+struct TypeLayout {
+    item: TokenStream,
+    assert: Option<TokenStream>,
+}
+
+impl TypeLayout {
+    fn new(
+        impl_ty: &mut ImplItemType,
+        group: &Ident,
+    ) -> syn::Result<Self> {
+        let layout = crate::naming::layout_assoc_ident(&impl_ty.ident);
+
+        if impl_ty.attrs.is_empty() {
+            let ty = &impl_ty.ty;
+            return Ok(TypeLayout {
+                item: quote! {
+                    type #layout = ::groupoid::UnpinnedTypeLayout<#group, #ty>;
+                },
+                assert: None,
+            });
+        }
 
         let SizeAssert { assert, size, ty } =
             SizeAssert::try_from(impl_ty)?;
-
-        let group_name = self.group_name;
-
-        Ok(quote! {
-            #assert
-            impl ::groupoid::SizedGroup<#size> for #group_name {}
-            impl ::groupoid::AlignedGroup<{ ::core::mem::align_of::<#ty>() }> for #group_name {}
+        Ok(TypeLayout {
+            item: quote! {
+                type #layout = ::groupoid::PinnedTypeLayout<
+                    #group, #ty, #size, { ::core::mem::align_of::<#ty>() }
+                >;
+            },
+            assert: Some(assert),
         })
     }
 }
 
-/// A compile-time assertion that `ty` is `size` bytes, read from
-/// `#[size(N)]`.
+/// A compile-time assertion read from `#[size(N)]`.
 pub struct SizeAssert<'a> {
     pub assert: TokenStream,
     pub size: LitInt,
@@ -145,8 +178,7 @@ pub struct SizeAssert<'a> {
 impl<'a> TryFrom<&'a mut ImplItemType> for SizeAssert<'a> {
     type Error = syn::Error;
 
-    /// Reads and removes the `#[size(N)]` on an associated type, rejecting
-    /// any other attribute.
+    /// Reads and removes `#[size(N)]`, rejecting other attributes.
     fn try_from(impl_ty: &'a mut ImplItemType) -> syn::Result<Self> {
         let ident = &impl_ty.ident;
 

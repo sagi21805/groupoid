@@ -1,0 +1,61 @@
+error[E0277]: convert with `morph` instead of transmuting: `groupoid::PinnedTypeSize<AGroup, u64, 8>` and `groupoid::PinnedTypeSize<BGroup, u32, 4>` differ in size
+  --> tests/ui/typestate_transmute_one_of_three_size_mismatch.rs:47:24
+   |
+47 |     let _ = unsafe { a.transmute_state::<StateB>() };
+   |                        ^^^^^^^^^^^^^^^ the trait `groupoid::SameSize<groupoid::PinnedTypeSize<AGroup, u64, 8>>` is not implemented for `groupoid::PinnedTypeSize<BGroup, u32, 4>`
+   |
+help: the trait `groupoid::SameSize<groupoid::UnpinnedTypeSize<G2, T2>>` is implemented for `groupoid::PinnedTypeSize<G1, T1, SIZE>`
+  --> $WORKSPACE/groupoid/src/error_helpers.rs
+   |
+   | / unsafe impl<G1, T1, G2: PinnedLayout<T2>, T2, const SIZE: usize>
+   | |     SameSize<UnpinnedTypeSize<G2, T2>> for PinnedTypeSize<G1, T1, SIZE>
+   | |_______________________________________________________________________^
+   = note: required for `groupoid::PinnedTypeLayout<BGroup, u32, 4, 4>` to implement `groupoid::SameLayout<groupoid::PinnedTypeLayout<AGroup, u64, 8, 8>>`
+note: required for `Triple<StateA>` to implement `TransmutableState<StateB>`
+  --> tests/ui/typestate_transmute_one_of_three_size_mismatch.rs:38:1
+   |
+38 | #[typestate(state = S, unsafe_transmute = true)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound introduced here
+39 | struct Triple<S: Meta> {
+   |        ^^^^^^^^^^^^^^^
+note: required by a bound in `transmute_state`
+  --> $WORKSPACE/groupoid/src/transmute.rs
+   |
+   |     unsafe fn transmute_state<To: State>(
+   |               --------------- required by a bound in this associated function
+...
+   |         Self: TransmutableState<To>,
+   |               ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Isomorphic::transmute_state`
+   = note: this error originates in the attribute macro `typestate` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: add `align = N` to `#[typestate(..)]`, with `N` at least the larger alignment of `groupoid::PinnedTypeAlignment<AGroup, u64, 8>` and `groupoid::PinnedTypeAlignment<BGroup, u32, 4>`
+  --> tests/ui/typestate_transmute_one_of_three_size_mismatch.rs:47:24
+   |
+47 |     let _ = unsafe { a.transmute_state::<StateB>() };
+   |                        ^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+   = help: the trait `groupoid::SameAlignment<groupoid::PinnedTypeAlignment<AGroup, u64, 8>>` is not implemented for `groupoid::PinnedTypeAlignment<BGroup, u32, 4>`
+help: the trait `groupoid::SameAlignment<groupoid::UnpinnedTypeAlignment<G2, T2>>` is implemented for `groupoid::PinnedTypeAlignment<G1, T1, ALIGN>`
+  --> $WORKSPACE/groupoid/src/error_helpers.rs
+   |
+   | / unsafe impl<G1, T1, G2: PinnedLayout<T2>, T2, const ALIGN: usize>
+   | |     SameAlignment<UnpinnedTypeAlignment<G2, T2>>
+   | |     for PinnedTypeAlignment<G1, T1, ALIGN>
+   | |__________________________________________^
+   = note: required for `groupoid::PinnedTypeLayout<BGroup, u32, 4, 4>` to implement `groupoid::SameLayout<groupoid::PinnedTypeLayout<AGroup, u64, 8, 8>>`
+note: required for `Triple<StateA>` to implement `TransmutableState<StateB>`
+  --> tests/ui/typestate_transmute_one_of_three_size_mismatch.rs:38:1
+   |
+38 | #[typestate(state = S, unsafe_transmute = true)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound introduced here
+39 | struct Triple<S: Meta> {
+   |        ^^^^^^^^^^^^^^^
+note: required by a bound in `transmute_state`
+  --> $WORKSPACE/groupoid/src/transmute.rs
+   |
+   |     unsafe fn transmute_state<To: State>(
+   |               --------------- required by a bound in this associated function
+...
+   |         Self: TransmutableState<To>,
+   |               ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Isomorphic::transmute_state`
+   = note: this error originates in the attribute macro `typestate` (in Nightly builds, run with -Z macro-backtrace for more info)

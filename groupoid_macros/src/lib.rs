@@ -19,10 +19,7 @@ mod syn_ext;
 mod template;
 mod typestate;
 
-/// Declares a trait whose one associated type groups states.
-///
-/// Adds a `State` supertrait and a `Marker` associated type that
-/// `#[group]` fills in.
+/// Declares a trait whose associated types group states.
 ///
 /// ```
 /// use groupoid::{group, state, template};
@@ -30,14 +27,24 @@ mod typestate;
 /// #[template]
 /// trait Meta {
 ///     type Value;
+///     type Label;
 /// }
 ///
 /// #[state]
 /// struct Small;
+/// #[state]
+/// struct Big;
 ///
 /// #[group(Numbers)]
 /// impl Meta for (Small,) {
 ///     type Value = u32;
+///     type Label = &'static str;
+/// }
+///
+/// #[group(Wide)]
+/// impl Meta for (Big,) {
+///     type Value = u64;
+///     type Label = String;
 /// }
 /// # fn main() {}
 /// ```
@@ -46,17 +53,13 @@ pub fn template(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let item_trait = parse_macro_input!(item as ItemTrait);
 
     Template::new(&item_trait)
-        .create_group_marker()
+        .and_then(|template| template.create_group_marker())
         .unwrap_or_else(|err| err.into_compile_error())
         .into()
 }
 
-/// Implements a `#[template]` trait for every state in the tuple, and
-/// declares the named group they belong to.
-///
-/// `#[size(N)]` on the associated type asserts its size and lets
-/// `#[typestate(unsafe_transmute = true)]` transmute between the
-/// group's states.
+/// Declares a group and implements a `#[template]` trait for its states.
+/// `#[size(N)]` on an associated type allows transmuting between them.
 ///
 /// ```
 /// use groupoid::{group, state, template};
@@ -89,12 +92,9 @@ pub fn group(attr: TokenStream, item: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Implements a `#[group_trait]` trait for the types whose state is in
-/// the named group.
-///
-/// The impl's only generic type parameter is the state; with several,
-/// name it with `#[group_impl(Group, state = S)]`. The group sets the
-/// state's associated type, so bound the state by the template alone.
+/// Implements a `#[group_trait]` trait for types whose state is in the
+/// group. Name the state with `state = S` when the impl has several type
+/// parameters.
 ///
 /// See [`macro@group_trait`] for an example.
 #[proc_macro_attribute]
@@ -108,14 +108,14 @@ pub fn group_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Marks a generic struct as a typestate container.
+/// Marks a generic struct as a typestate container. Options:
+/// `state = S`, `unsafe_transmute = true`, `align = N`.
 ///
-/// Implements `WithState`, and `morph_with` when a field projects
-/// through the state. `unsafe_transmute = true` also implements
-/// `TransmutableState`, and `align = N` forces the alignment it uses.
+/// Implements `groupoid::Restate` for every target state, so the struct
+/// converts with `morph::<S2>()` once it implements `groupoid::MorphFrom`.
 ///
 /// ```
-/// use groupoid::{group, state, template, typestate};
+/// use groupoid::{MorphFrom, Morphic, group, state, template, typestate};
 ///
 /// #[template]
 /// trait Meta {
@@ -142,10 +142,20 @@ pub fn group_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     value: S::Value,
 /// }
 ///
+/// impl<S: Meta, S2: Meta> MorphFrom<Wrap<S>> for Wrap<S2>
+/// where
+///     S2::Value: From<S::Value>,
+/// {
+///     fn morph_from(src: Wrap<S>) -> Self {
+///         Wrap {
+///             value: src.value.into(),
+///         }
+///     }
+/// }
+///
 /// fn main() {
-///     let small = Wrap::<Small> { value: 7 };
-///     let big: Wrap<Big> = small.morph_with(u64::from);
-///     assert_eq!(big.value, 7);
+///     let big = Wrap::<Small> { value: 7 }.morph::<Big>();
+///     assert_eq!(big.value, 7u64);
 /// }
 /// ```
 #[proc_macro_attribute]
@@ -175,8 +185,7 @@ pub fn state(_attr: TokenStream, item: TokenStream) -> TokenStream {
     State::new(&item_struct).generate_state_impl().into()
 }
 
-/// Declares a trait whose implementation depends on the group of the
-/// implementer's state. Each group implements it with `#[group_impl]`.
+/// Declares a trait each group implements with `#[group_impl]`.
 ///
 /// ```
 /// use groupoid::{

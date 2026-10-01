@@ -2,10 +2,9 @@ use extend::ext;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{
-    Attribute, ConstParam, Field, Fields, GenericArgument, GenericParam,
-    Generics, Ident, Index, ItemStruct, LifetimeParam, LitBool, LitInt,
-    Path, PathArguments, Token, Type, TypeParam, TypePath, TypeTuple,
-    WherePredicate,
+    Attribute, ConstParam, Field, GenericParam, Generics, Ident,
+    ItemStruct, LifetimeParam, LitBool, LitInt, Path, PathArguments,
+    Token, Type, TypeParam, TypePath, WherePredicate,
     parse::{Parse, ParseStream},
     parse_quote,
     visit::{self, Visit},
@@ -16,29 +15,23 @@ use crate::syn_ext::{
 };
 
 pub(crate) struct TypeState {
-    /// The original struct with the state parameter's bounds extended
-    /// with `::groupoid::State`, and its `repr` settled when transmute is
-    /// on.
+    /// The struct with the state bounded by `State`.
     item_struct: ItemStruct,
     /// The generic type parameter carrying the state.
     state: Ident,
-    /// The state being moved to, with the state parameter's bounds.
+    /// The target state, with the state's bounds.
     target_state: TypeParam,
-    /// The struct's type in the target state.
-    ///
     /// `Wrap<S> -> Wrap<__GroupoidTargetState>`
     target_ty: TokenStream,
-    /// Whether `SizedWithState` and `TransmutableState` are derived too.
+    /// Whether `TransmutableState` is derived too.
     transmute: Transmute,
-    /// The one associated type the fields project through the state
-    /// (`Value` in `S::Value`), if any.
-    projection: Option<Ident>,
+    /// The distinct associated types the fields project through the
+    /// state (`Value` in `S::Value`), in order of first appearance.
+    projections: Vec<Ident>,
 }
 
 impl TypeState {
-    /// Resolves the state parameter, bounds it by `::groupoid::State`,
-    /// checks that `morph_with` can peel every field, and checks the
-    /// struct's layout when transmute is on.
+    /// Resolves the state and validates the fields.
     pub(crate) fn new(
         args: TypeStateArgs,
         mut item_struct: ItemStruct,
@@ -53,14 +46,11 @@ impl TypeState {
         let state = state_param.ident.clone();
         let target_ty =
             item_struct.with_state(&state, &target_state.ident);
-        let projection = item_struct.unique_projection(&state)?;
-        if projection.is_some() {
-            item_struct.require_single_state_args(&state)?;
-        }
+        let projections = item_struct.projections(&state)?;
 
         if let Transmute::On(align) = &args.transmute {
             item_struct.require_transmutable_layout(&state)?;
-            if projection.is_none() {
+            if projections.is_empty() {
                 return Err(syn::Error::new_spanned(
                     &item_struct.ident,
                     format!(
@@ -78,7 +68,7 @@ impl TypeState {
             target_state,
             target_ty,
             transmute: args.transmute,
-            projection,
+            projections,
         })
     }
 
@@ -86,23 +76,22 @@ impl TypeState {
     pub(crate) fn generate_typestate_impls(&self) -> TokenStream {
         let item_struct = &self.item_struct;
         let with_state_impl = self.with_state_impl();
-        let transmute_impls = match &self.transmute {
-            Transmute::On(align) => Some(self.transmute_impls(align)),
+        let transmutable_state_impl = match &self.transmute {
+            Transmute::On(align) => {
+                Some(self.transmutable_state_impl(align))
+            }
             Transmute::Off => None,
         };
-        let morph_impl = self
-            .projection
-            .as_ref()
-            .map(|projection| self.morph_impl(projection));
+        let restate_impl = self.restate_impl();
 
         quote! {
             #item_struct
 
             #with_state_impl
 
-            #transmute_impls
+            #restate_impl
 
-            #morph_impl
+            #transmutable_state_impl
         }
     }
 
@@ -119,167 +108,134 @@ impl TypeState {
         }
     }
 
-    /// `SizedWithState<N, A>` and `TransmutableState<S2, N, A>`, with `A`
-    /// either the state's own alignment or the one forced by `align = A`.
-    fn transmute_impls(&self, align: &Alignment) -> TokenStream {
-        let sized_with_state_impl = self.sized_with_state_impl(align);
-        let transmutable_state_impl = self.transmutable_state_impl(align);
-
-        quote! {
-            #sized_with_state_impl
-
-            #transmutable_state_impl
-        }
-    }
-
-    /// `SizedWithState<N, A>` for the struct, pinned by the state's
-    /// `#[size(N)]` template type.
-    fn sized_with_state_impl(&self, align: &Alignment) -> TokenStream {
-        let struct_ident = &self.item_struct.ident;
-        let (_, ty_generics, _) =
-            self.item_struct.generics.split_for_impl();
-
-        let mut generics = self.item_struct.generics.clone();
-        let align_arg =
-            generics.pin_states_to_shared_layout(&[&self.state], align);
-        let (impl_generics, _, where_clause) = generics.split_for_impl();
-
-        quote! {
-            impl #impl_generics ::groupoid::SizedWithState<__GROUPOID_SIZE, #align_arg>
-                for #struct_ident #ty_generics #where_clause {}
-        }
-    }
-
-    /// `TransmutableState<S2, N, A>` for `Struct<S>` with
-    /// `Target = Struct<S2>`, generic over every `S2` with `S`'s bounds
-    /// and layout.
-    fn transmutable_state_impl(&self, align: &Alignment) -> TokenStream {
+    /// `Restate<S2>` for `Struct<S>`, for every `S2`.
+    fn restate_impl(&self) -> TokenStream {
         let struct_ident = &self.item_struct.ident;
         let target_state = &self.target_state.ident;
         let target_ty = &self.target_ty;
         let (_, ty_generics, _) =
             self.item_struct.generics.split_for_impl();
-
-        let mut generics = self.item_struct.generics.clone();
-        generics
-            .params
-            .push(GenericParam::Type(self.target_state.clone()));
-        let align_arg = generics.pin_states_to_shared_layout(
-            &[&self.state, target_state],
-            align,
-        );
+        let generics = self.target_generics();
         let (impl_generics, _, where_clause) = generics.split_for_impl();
 
         quote! {
-            // SAFETY: `Self` and `Target` differ only in the state, every
-            // field is a projection, a ZST or state-independent, and both
-            // projections share size and alignment, so `repr(C)` lays
-            // them out identically.
-            unsafe impl #impl_generics ::groupoid::TransmutableState<
-                #target_state, __GROUPOID_SIZE, #align_arg
-            > for #struct_ident #ty_generics #where_clause {
+            impl #impl_generics ::groupoid::Restate<#target_state>
+                for #struct_ident #ty_generics #where_clause
+            {
                 type Target = #target_ty;
             }
         }
     }
 
-    /// The inherent `morph_with` method, which rebuilds the struct for
-    /// another state by value.
-    fn morph_impl(&self, projection: &Ident) -> TokenStream {
-        let struct_ident = &self.item_struct.ident;
-        let state = &self.state;
-        let target_state = &self.target_state.ident;
-        let target_ty = &self.target_ty;
-        let f = &crate::naming::morph_fn_ident();
-        let elem = &crate::naming::morph_elem_ident();
-        let (impl_generics, ty_generics, where_clause) =
-            self.item_struct.generics.split_for_impl();
-
-        let ctx = MorphCtx {
-            state,
-            target_state,
-            projection,
-            f,
-            elem,
-        };
-        let mut predicates = Vec::new();
-        let body = self.morph_body(&ctx, &mut predicates);
-
-        let mut generics = Generics::default();
+    /// The struct's generics plus the target state.
+    fn target_generics(&self) -> Generics {
+        let mut generics = self.item_struct.generics.clone();
         generics
             .params
             .push(GenericParam::Type(self.target_state.clone()));
-        generics.make_where_clause().predicates.extend(predicates);
-        let (with_impl_generics, _, with_where_clause) =
-            generics.split_for_impl();
+        generics
+    }
+
+    /// `TransmutableState<S2>` for `Struct<S>`, for every `S2` with a
+    /// matching layout.
+    fn transmutable_state_impl(&self, align: &Alignment) -> TokenStream {
+        let struct_ident = &self.item_struct.ident;
+        let target_state = &self.target_state.ident;
+        let (_, ty_generics, _) =
+            self.item_struct.generics.split_for_impl();
+
+        let mut generics = self.target_generics();
+        generics.make_where_clause().predicates.extend(
+            self.projections.iter().map(|projection| {
+                self.layout_predicate(projection, align)
+            }),
+        );
+        let (impl_generics, _, where_clause) = generics.split_for_impl();
+        let layout_check = self.layout_check();
 
         quote! {
-            impl #impl_generics #struct_ident #ty_generics #where_clause {
-                /// Rebuilds `self` for the target state, converting every
-                /// projection through the state with `f`.
-                ///
-                /// Tuples are rebuilt in place, and every other wrapper goes
-                /// through `groupoid::Morph`, one layer at a time. Fields
-                /// that don't mention the state move unchanged.
-                pub fn morph_with #with_impl_generics (
-                    self,
-                    mut #f: impl FnMut(#state::#projection)
-                        -> #target_state::#projection,
-                ) -> #target_ty #with_where_clause {
-                    #body
-                }
+            // SAFETY: the where-clause gives every projection one size
+            // in both states, and the `repr` fixes the field order.
+            // `LAYOUT_CHECK` rejects any alignment or field offset that
+            // `align = N` lets differ.
+            unsafe impl #impl_generics ::groupoid::TransmutableState<#target_state>
+                for #struct_ident #ty_generics #where_clause
+            {
+                #layout_check
             }
         }
     }
 
-    /// The struct literal rebuilding `self` field by field for the target
-    /// state, pushing the `Morph` bounds it needs onto `predicates`.
-    fn morph_body(
-        &self,
-        ctx: &MorphCtx,
-        predicates: &mut Vec<WherePredicate>,
-    ) -> TokenStream {
+    /// `TransmutableState::LAYOUT_CHECK`, extended with one offset
+    /// assertion per field.
+    ///
+    /// `align = N` pins the container's alignment but not its fields', so
+    /// a field after a projection can sit at another offset in the
+    /// target state.
+    fn layout_check(&self) -> TokenStream {
         let struct_ident = &self.item_struct.ident;
-
-        match &self.item_struct.fields {
-            Fields::Named(named) => {
-                let fields = named.named.iter().map(|field| {
-                    let ident = field
-                        .ident
-                        .as_ref()
-                        .expect("named fields have identifiers");
-                    let expr = field.ty.morph_expr(
-                        ctx,
-                        quote!(self.#ident),
-                        predicates,
-                    );
-                    quote!(#ident: #expr)
-                });
-                quote!(#struct_ident { #(#fields),* })
-            }
-            Fields::Unnamed(unnamed) => {
-                let fields = unnamed.unnamed.iter().enumerate().map(
-                    |(i, field)| {
-                        let index = Index::from(i);
-                        field.ty.morph_expr(
-                            ctx,
-                            quote!(self.#index),
-                            predicates,
-                        )
-                    },
+        let target_ty = &self.target_ty;
+        let align_msg = format!(
+            "raise `align = N` on `{struct_ident}` to at least the \
+             largest alignment among its states"
+        );
+        let offset_asserts = self.item_struct.fields.members().map(|member| {
+            let msg = format!(
+                "move field `{}` to the start of `{struct_ident}`, or \
+                 transmute only between states whose types share an \
+                 alignment: its offset differs in the target state",
+                quote!(#member),
+            );
+            quote! {
+                ::core::assert!(
+                    ::core::mem::offset_of!(Self, #member)
+                        == ::core::mem::offset_of!(#target_ty, #member),
+                    #msg
                 );
-                quote!(#struct_ident(#(#fields),*))
             }
-            Fields::Unit => unreachable!(
-                "a unit struct has no field to project through the state"
-            ),
+        });
+
+        quote! {
+            const LAYOUT_CHECK: () = {
+                ::core::assert!(
+                    ::core::mem::align_of::<Self>()
+                        == ::core::mem::align_of::<#target_ty>(),
+                    #align_msg
+                );
+                #(#offset_asserts)*
+                ::core::assert!(
+                    ::core::mem::size_of::<Self>()
+                        == ::core::mem::size_of::<#target_ty>(),
+                    "`Self` and `Target` must have the same size"
+                );
+            };
+        }
+    }
+
+    /// `S2::__GroupoidLayoutP: SameLayout<S::__GroupoidLayoutP>`, or only
+    /// `SameSize` under `align = N`.
+    fn layout_predicate(
+        &self,
+        projection: &Ident,
+        align: &Alignment,
+    ) -> WherePredicate {
+        let state = &self.state;
+        let target_state = &self.target_state.ident;
+        let layout = crate::naming::layout_assoc_ident(projection);
+
+        match align {
+            Alignment::Inferred => parse_quote! {
+                #target_state::#layout: ::groupoid::SameLayout<#state::#layout>
+            },
+            Alignment::Forced(_) => parse_quote! {
+                <#target_state::#layout as ::groupoid::TypeLayout>::Size:
+                    ::groupoid::SameSize<<#state::#layout as ::groupoid::TypeLayout>::Size>
+            },
         }
     }
 }
 
-/// `#[typestate]`'s arguments: an optional `state = <Ident>`, an optional
-/// `unsafe_transmute = <bool>` and an optional `align = <integer
-/// literal>`, in any order, each at most once.
+/// `#[typestate(state = S, unsafe_transmute = true, align = N)]`
 pub(crate) struct TypeStateArgs {
     state: Option<Ident>,
     transmute: Transmute,
@@ -331,27 +287,22 @@ impl Parse for TypeStateArgs {
     }
 }
 
-/// Whether `#[typestate]` also derives the in-place `transmute_state`.
+/// Whether `#[typestate]` implements `TransmutableState`.
 pub(crate) enum Transmute {
-    /// Default, only `WithState` and `morph_with`.
     Off,
-    /// `unsafe_transmute = true`, additionally implements `SizedWithState`
-    /// and `TransmutableState`.
     On(Alignment),
 }
 
-/// How the container's alignment is pinned.
+/// The container's alignment.
 pub(crate) enum Alignment {
-    /// No `align` argument.
     Inferred,
-    /// `align = N`. The container is forced to `#[repr(align(N))]`.
+    /// `align = N`
     Forced(LitInt),
 }
 
 #[ext]
 impl ItemStruct {
-    /// The generic type parameter named `state`, or the only one when no
-    /// name is given.
+    /// The type parameter named `state`, or the only one.
     fn state_param(
         &mut self,
         state: Option<&Ident>,
@@ -388,55 +339,36 @@ impl ItemStruct {
             })
     }
 
-    /// The one associated type the fields project through the state
-    /// (`Value` in `S::Value`), at any depth.
-    fn unique_projection(
-        &self,
-        state: &Ident,
-    ) -> syn::Result<Option<Ident>> {
-        let mut projections = self
+    /// The distinct associated types the fields project through the
+    /// state (`Value` in `S::Value`), at any depth, in order of first
+    /// appearance.
+    fn projections(&self, state: &Ident) -> syn::Result<Vec<Ident>> {
+        let mut projections: Vec<Ident> = Vec::new();
+
+        for projection in self
             .fields
             .iter()
-            .flat_map(|field| field.ty.projections(state));
-
-        let Some(first) = projections.next() else {
-            return Ok(None);
-        };
-        if let Some(found) = projections.find(|found| *found != first) {
-            return Err(syn::Error::new(
-                found.span(),
-                format!(
-                    "project every field through the same associated \
-                     type of `{state}`, not both `{state}::{first}` and \
-                     `{state}::{found}`"
-                ),
-            ));
-        }
-
-        Ok(Some(first))
-    }
-
-    /// Checks that every wrapper `morph_with` peels has one generic
-    /// argument to morph.
-    fn require_single_state_args(&self, state: &Ident) -> syn::Result<()> {
-        for field in self.fields.iter() {
-            if let Some(layer) = field.ty.ambiguous_layer(state) {
-                return Err(syn::Error::new_spanned(
-                    layer,
+            .flat_map(|field| field.ty.projections(state))
+        {
+            if projection == "Marker" {
+                return Err(syn::Error::new(
+                    projection.span(),
                     format!(
-                        "give this wrapper one generic argument that \
-                         mentions `{state}`, such as a local \
-                         `Wrapper<{state}::Assoc>` that implements \
-                         `groupoid::Morph`"
+                        "replace `{state}::Marker` with \
+                         `PhantomData<{state}>`: a group marker has no \
+                         value to convert"
                     ),
                 ));
             }
+            if !projections.contains(&projection) {
+                projections.push(projection);
+            }
         }
 
-        Ok(())
+        Ok(projections)
     }
 
-    /// Checks that every field's layout can be pinned across states.
+    /// Checks that every field keeps its layout across states.
     fn require_transmutable_layout(
         &self,
         state: &Ident,
@@ -449,7 +381,7 @@ impl ItemStruct {
                         "make this field `{state}::Assoc`, a ZST or a \
                          type without `{state}`, or remove \
                          `unsafe_transmute = true` and convert with \
-                         `morph_with`"
+                         `morph`"
                     ),
                 ));
             }
@@ -458,8 +390,7 @@ impl ItemStruct {
         Ok(())
     }
 
-    /// Guarantees the struct's layout with `#[repr(C | transparent)]`, and
-    /// adds `#[repr(align(N))]` for a forced alignment.
+    /// Adds `#[repr(C)]` if missing, and `#[repr(align(N))]` when forced.
     fn ensure_repr(&mut self, align: &Alignment) -> syn::Result<()> {
         let reprs: Vec<&Attribute> = self
             .attrs
@@ -488,9 +419,6 @@ impl ItemStruct {
         Ok(())
     }
 
-    /// This struct's type with the `state` parameter swapped for
-    /// `target_state`.
-    ///
     /// `Wrap<S> -> Wrap<target_state>`
     fn with_state(
         &self,
@@ -516,42 +444,8 @@ impl ItemStruct {
 }
 
 #[ext]
-impl Generics {
-    /// Requires all `states` to share one size via `SizedGroup`, and one
-    /// alignment via `AlignedGroup` unless it is forced. Returns the
-    /// alignment to use.
-    fn pin_states_to_shared_layout(
-        &mut self,
-        states: &[&Ident],
-        align: &Alignment,
-    ) -> TokenStream {
-        self.params.push(parse_quote!(const __GROUPOID_SIZE: usize));
-        self.make_where_clause()
-            .predicates
-            .extend(states.iter().map(|state| -> WherePredicate {
-                parse_quote!(#state::Marker: ::groupoid::SizedGroup<__GROUPOID_SIZE>)
-            }));
-
-        match align {
-            Alignment::Forced(n) => quote!(#n),
-            Alignment::Inferred => {
-                self.params
-                    .push(parse_quote!(const __GROUPOID_ALIGN: usize));
-                self.make_where_clause()
-                    .predicates
-                    .extend(states.iter().map(|state| -> WherePredicate {
-                        parse_quote!(#state::Marker: ::groupoid::AlignedGroup<__GROUPOID_ALIGN>)
-                    }));
-                quote!(__GROUPOID_ALIGN)
-            }
-        }
-    }
-}
-
-#[ext]
 impl Field {
-    /// Whether this field is a bare `S::Value`, a ZST, or doesn't mention
-    /// the state. `Option<S::Value>` is not.
+    /// Whether this field is `S::Value`, a ZST, or state-independent.
     fn is_transmutable(&self, state: &Ident) -> bool {
         self.ty.state_projection(state).is_some()
             || self.ty.is_zst()
@@ -561,8 +455,6 @@ impl Field {
 
 #[ext]
 impl Type {
-    /// The `Assoc` of every `S::Assoc` inside this type.
-    ///
     /// `Option<S::Value> -> [Value]`
     fn projections(&self, state: &Ident) -> Vec<Ident> {
         let mut projections = Projections {
@@ -573,166 +465,7 @@ impl Type {
         projections.found
     }
 
-    /// The expression rebuilding `expr`, a value of this type, for the
-    /// target state. Pushes the `Morph` bounds it needs onto
-    /// `predicates`.
-    fn morph_expr(
-        &self,
-        ctx: &MorphCtx,
-        expr: TokenStream,
-        predicates: &mut Vec<WherePredicate>,
-    ) -> TokenStream {
-        match self.morph_shape(ctx.state) {
-            MorphShape::Unchanged => expr,
-            MorphShape::Direct => {
-                let f = ctx.f;
-                quote!(#f(#expr))
-            }
-            MorphShape::Zst(value) => value,
-            MorphShape::Tuple(tuple) => {
-                tuple.morph_tuple(ctx, expr, predicates)
-            }
-            MorphShape::Wrapped(inner) => {
-                let MorphCtx {
-                    state,
-                    target_state,
-                    elem,
-                    ..
-                } = ctx;
-                let inner_expr =
-                    inner.morph_expr(ctx, quote!(#elem), predicates);
-                self.morph_call(
-                    expr,
-                    quote!(#inner),
-                    inner.with_ident_renamed(state, target_state),
-                    quote!(|#elem| #inner_expr),
-                    ctx,
-                    predicates,
-                )
-            }
-            MorphShape::Opaque => {
-                let MorphCtx {
-                    state,
-                    target_state,
-                    projection,
-                    f,
-                    ..
-                } = ctx;
-                self.morph_call(
-                    expr,
-                    quote!(#state::#projection),
-                    quote!(#target_state::#projection),
-                    quote!(#f),
-                    ctx,
-                    predicates,
-                )
-            }
-        }
-    }
-
-    /// How `morph_expr` rebuilds a value of this type.
-    fn morph_shape(&self, state: &Ident) -> MorphShape<'_> {
-        if !self.mentions_ident(state) {
-            return MorphShape::Unchanged;
-        }
-        if self.state_projection(state).is_some() {
-            return MorphShape::Direct;
-        }
-        if let Some(value) = self.zst_value() {
-            return MorphShape::Zst(value);
-        }
-        if let Type::Tuple(tuple) = self.peeled() {
-            return MorphShape::Tuple(tuple);
-        }
-
-        self.morph_inner(state)
-            .map_or(MorphShape::Opaque, MorphShape::Wrapped)
-    }
-
-    /// The one generic argument that mentions the state, or the element
-    /// of an array.
-    ///
-    /// `Option<[S::Value; 2]> -> [S::Value; 2]`
-    fn morph_inner(&self, state: &Ident) -> Option<&Type> {
-        if let Type::Array(array) = self.peeled() {
-            return Some(&array.elem);
-        }
-
-        match self.state_args(state).as_slice() {
-            [inner] => Some(inner),
-            _ => None,
-        }
-    }
-
-    /// The distinct generic arguments of this path type that mention the
-    /// state.
-    ///
-    /// `Result<S::Value, [S::Value; 2]> -> [S::Value, [S::Value; 2]]`
-    fn state_args(&self, state: &Ident) -> Vec<&Type> {
-        let Type::Path(TypePath {
-            qself: None, path, ..
-        }) = self.peeled()
-        else {
-            return Vec::new();
-        };
-        let Some(PathArguments::AngleBracketed(args)) =
-            path.segments.last().map(|segment| &segment.arguments)
-        else {
-            return Vec::new();
-        };
-
-        let mut found = Vec::new();
-        for arg in &args.args {
-            let GenericArgument::Type(ty) = arg else {
-                continue;
-            };
-            if ty.mentions_ident(state) && !found.contains(&ty) {
-                found.push(ty);
-            }
-        }
-        found
-    }
-
-    /// The first layer `morph_with` would reach that has several
-    /// different generic arguments mentioning the state.
-    ///
-    /// `Option<Result<S::Value, [S::Value; 2]>> -> Result<..>`
-    fn ambiguous_layer(&self, state: &Ident) -> Option<&Type> {
-        match self.morph_shape(state) {
-            MorphShape::Unchanged
-            | MorphShape::Direct
-            | MorphShape::Zst(_) => None,
-            MorphShape::Tuple(tuple) => {
-                tuple.elems.iter().find_map(|ty| ty.ambiguous_layer(state))
-            }
-            MorphShape::Wrapped(inner) => inner.ambiguous_layer(state),
-            MorphShape::Opaque => {
-                (self.state_args(state).len() > 1).then_some(self)
-            }
-        }
-    }
-
-    /// A `Morph<src, dst>` call on `expr` with the closure `convert`,
-    /// and the bound it needs.
-    fn morph_call(
-        &self,
-        expr: TokenStream,
-        src: TokenStream,
-        dst: TokenStream,
-        convert: TokenStream,
-        ctx: &MorphCtx,
-        predicates: &mut Vec<WherePredicate>,
-    ) -> TokenStream {
-        let target_ty =
-            self.with_ident_renamed(ctx.state, ctx.target_state);
-
-        predicates.push(parse_quote!(
-            #self: ::groupoid::Morph<#src, #dst, Output = #target_ty>
-        ));
-        quote!(<#self as ::groupoid::Morph<#src, #dst>>::morph(#expr, &mut #convert))
-    }
-
-    /// `Value` when this type is `S::Value`.
+    /// `Assoc` when this type is `S::Assoc, or (S::Assoc)`.
     fn state_projection(&self, state: &Ident) -> Option<&Ident> {
         let Type::Path(TypePath {
             qself: None,
@@ -757,45 +490,6 @@ impl Type {
     }
 }
 
-#[ext]
-impl TypeTuple {
-    /// `(T, ..)`, destructured and rebuilt element by element.
-    fn morph_tuple(
-        &self,
-        ctx: &MorphCtx,
-        expr: TokenStream,
-        predicates: &mut Vec<WherePredicate>,
-    ) -> TokenStream {
-        let bindings: Vec<Ident> = (0..self.elems.len())
-            .map(crate::naming::tuple_binding_ident)
-            .collect();
-        let elems =
-            self.elems.iter().zip(&bindings).map(|(ty, binding)| {
-                ty.morph_expr(ctx, quote!(#binding), predicates)
-            });
-        quote!({
-            let (#(#bindings,)*) = #expr;
-            (#(#elems,)*)
-        })
-    }
-}
-
-/// How `Type::morph_expr` rebuilds a value for the target state.
-enum MorphShape<'a> {
-    /// A type that doesn't mention the state, moved as is.
-    Unchanged,
-    /// `S::Value`, passed to `f`.
-    Direct,
-    /// A ZST, created fresh.
-    Zst(TokenStream),
-    /// `(T, ..)`
-    Tuple(&'a TypeTuple),
-    /// `Wrapper<T>` or `[T; N]`, one `Morph` layer around `T`.
-    Wrapped(&'a Type),
-    /// Anything else, one `Morph` call on the projection.
-    Opaque,
-}
-
 /// Collects the `Assoc` of every `S::Assoc` it visits.
 struct Projections<'a> {
     state: &'a Ident,
@@ -809,16 +503,4 @@ impl<'ast> Visit<'ast> for Projections<'_> {
             None => visit::visit_type(self, ty),
         }
     }
-}
-
-/// What `Type::morph_expr` needs to convert a projection.
-struct MorphCtx<'a> {
-    state: &'a Ident,
-    target_state: &'a Ident,
-    /// `Value` in `S::Value`.
-    projection: &'a Ident,
-    /// The conversion closure.
-    f: &'a Ident,
-    /// The closure binding for one element of a mapped or boxed value.
-    elem: &'a Ident,
 }

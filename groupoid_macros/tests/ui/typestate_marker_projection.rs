@@ -1,4 +1,4 @@
-// Projecting two associated types makes `morph_with`'s `f` ambiguous.
+// A `S::Marker` field has no layout and nothing to convert.
 #![allow(dead_code)]
 use groupoid_macros::{template, typestate};
 
