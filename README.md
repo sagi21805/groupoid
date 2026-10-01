@@ -2,7 +2,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/typestate-groups.svg)](https://crates.io/crates/typestate-groups)
 [![docs.rs](https://docs.rs/typestate-groups/badge.svg)](https://docs.rs/typestate-groups)
-[![CI](https://github.com/sagi21805/groupoid/actions/workflows/ci.yml/badge.svg)](https://github.com/sagi21805/groupoid/actions/workflows/ci.yml)
+[![CI](https://github.com/sagi21805/typestate-groups/actions/workflows/ci.yml/badge.svg)](https://github.com/sagi21805/typestate-groups/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 Typestate-based grouping types for Rust.

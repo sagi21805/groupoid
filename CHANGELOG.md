@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from `groupoid::` to `typestate_groups::`.
 - Renamed the `#[template]` attribute to `#[state_types]`.
 
-## [0.2.0](https://github.com/sagi21805/groupoid/compare/groupoid-v0.1.1...groupoid-v0.2.0) - 2026-10-01
+## [0.2.0](https://github.com/sagi21805/typestate-groups/compare/groupoid-v0.1.1...groupoid-v0.2.0) - 2026-10-01
 
 ### Other
 
@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - removed unused struct in test to satisfy clippy
 
-## [0.1.1](https://github.com/sagi21805/groupoid/compare/groupoid-v0.1.0...groupoid-v0.1.1) - 2026-09-26
+## [0.1.1](https://github.com/sagi21805/typestate-groups/compare/groupoid-v0.1.0...groupoid-v0.1.1) - 2026-09-26
 
 ### Other
 
