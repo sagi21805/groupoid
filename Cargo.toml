@@ -1,6 +1,6 @@
 [workspace]
 
-members = ["typestate-groups", "typestate-groups-macros"]
+members = ["asm-compare", "typestate-groups", "typestate-groups-macros"]
 
 resolver = "2"
 

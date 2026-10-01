@@ -1,0 +1,12 @@
+[package]
+name = "asm-compare"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Same packet pipeline written by hand and with typestate-groups, for comparing the release assembly"
+
+[dependencies]
+typestate-groups = { path = "../typestate-groups" }
