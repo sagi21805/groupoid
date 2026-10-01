@@ -9,6 +9,7 @@ use syn::{
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     visit::Visit,
+    visit_mut::VisitMut,
 };
 
 #[ext]
@@ -144,6 +145,36 @@ pub(crate) impl WherePredicate {
             }) if path.is_ident(param) => Some(bounds),
             _ => None,
         }
+    }
+
+    /// This predicate with `from` renamed to `to`, when it mentions
+    /// `from`.
+    ///
+    /// `Option<S>: Debug` -> `Option<T>: Debug`
+    fn renamed(&self, from: &Ident, to: &Ident) -> Option<WherePredicate> {
+        struct Rename<'a> {
+            from: &'a Ident,
+            to: &'a Ident,
+            found: bool,
+        }
+
+        impl VisitMut for Rename<'_> {
+            fn visit_ident_mut(&mut self, ident: &mut Ident) {
+                if ident == self.from {
+                    *ident = self.to.clone();
+                    self.found = true;
+                }
+            }
+        }
+
+        let mut predicate = self.clone();
+        let mut rename = Rename {
+            from,
+            to,
+            found: false,
+        };
+        rename.visit_where_predicate_mut(&mut predicate);
+        rename.found.then_some(predicate)
     }
 }
 

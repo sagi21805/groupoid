@@ -41,6 +41,15 @@ struct WithBound<S: Debug> {
     _s: S,
 }
 
+#[typestate(state = S)]
+struct WithWhere<S>
+where
+    S: Debug,
+    Option<S>: Debug,
+{
+    _s: S,
+}
+
 #[typestate]
 struct Inferred<S> {
     _s: PhantomData<S>,
@@ -58,5 +67,6 @@ fn state_and_typestate_accept_other_generics() {
     has_state_a::<Middle<u8, StateA, String>>();
     has_state_a::<Buffered<StateA, 4>>();
     has_state_a::<WithBound<StateA>>();
+    has_state_a::<WithWhere<StateA>>();
     has_state_a::<Inferred<StateA>>();
 }
