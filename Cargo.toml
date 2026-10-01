@@ -1,6 +1,6 @@
 [workspace]
 
-members = ["groupoid", "groupoid_macros"]
+members = ["typestate-groups", "typestate-groups-macros"]
 
 resolver = "2"
 
