@@ -1,7 +1,6 @@
 //! Unchecked `transmute_state` calls that Miri must reject as undefined
-//! behaviour. `tests/ui/cast_state_rejects_miri_ub.rs` writes the same
-//! cases, under the same names, with `cast_state`, and none of them
-//! compile.
+//! behaviour. `tests/ui/cast_state.rs` writes the same cases, under the
+//! same names, with `cast_state`, and none of them compile.
 //!
 //! UB stops Miri instead of panicking, so `#[should_panic]` can't catch
 //! it. Every case is ignored; run one at a time to see Miri reject it:

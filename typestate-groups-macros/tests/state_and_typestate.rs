@@ -1,184 +1,62 @@
-use std::marker::PhantomData;
+//! `#[state]` on generic structs, and `#[typestate]` finding the state
+//! among other generic parameters.
 
-use typestate_groups_macros::{group, state, state_types, typestate};
-
-// --- #[state] on generic structs
-// -------------------------------------------------
+use core::{fmt::Debug, marker::PhantomData};
+use typestate_groups::{State, WithState};
+use typestate_groups_macros::{state, typestate};
 
 #[state]
-struct GenericState<T> {
-    #[allow(dead_code)]
-    data: T,
+struct Generic<T> {
+    _data: T,
 }
 
 #[state]
-struct MultiGenericState<T, U>
+struct Bounded<T, U>
 where
     T: Clone,
 {
-    #[allow(dead_code)]
-    a: T,
-    #[allow(dead_code)]
-    b: U,
+    _a: T,
+    _b: U,
 }
-
-fn accepts_state<S: typestate_groups::State>(_: &S) {}
-
-#[test]
-fn generic_state_satisfies_state_for_any_t() {
-    accepts_state(&GenericState { data: 5u32 });
-    accepts_state(&GenericState { data: "hi" });
-}
-
-#[test]
-fn state_impl_respects_where_clause() {
-    accepts_state(&MultiGenericState { a: 1u8, b: 2u8 });
-}
-
-// --- multiple #[state] structs carrying independent behavior
-// ---------------------
 
 #[state]
+#[derive(Debug)]
 struct StateA;
-#[state]
-struct StateB;
-
-trait Describe {
-    fn name() -> &'static str;
-}
-
-impl Describe for StateA {
-    fn name() -> &'static str {
-        "StateA"
-    }
-}
-
-impl Describe for StateB {
-    fn name() -> &'static str {
-        "StateB"
-    }
-}
-
-#[test]
-fn multiple_states_carry_independent_behavior() {
-    assert_eq!(StateA::name(), "StateA");
-    assert_eq!(StateB::name(), "StateB");
-}
-
-// --- #[typestate] with the state param in the middle of the generic list
-// ---------
 
 #[typestate(state = S)]
-struct Multi<A, S, B> {
-    #[allow(dead_code)]
-    a: A,
-    #[allow(dead_code)]
-    s: PhantomData<S>,
-    #[allow(dead_code)]
-    b: B,
+struct Middle<A, S, B> {
+    _a: A,
+    _s: PhantomData<S>,
+    _b: B,
 }
-
-fn same_state<T: typestate_groups::WithState<State = StateA>>() {}
-
-#[test]
-fn typestate_matches_non_first_generic_param() {
-    same_state::<Multi<u8, StateA, String>>();
-}
-
-// --- #[typestate] preserving an existing where-clause on the state param
-// ---------
-
-#[typestate(state = S)]
-struct WithWhere<S: std::fmt::Debug> {
-    #[allow(dead_code)]
-    s: S,
-}
-
-fn assert_with_state<T: typestate_groups::WithState>() {}
-
-#[state]
-struct DebugState;
-
-impl std::fmt::Debug for DebugState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "DebugState")
-    }
-}
-
-#[test]
-fn typestate_preserves_where_clause() {
-    // Compiles only if `impl WithState` keeps the `S: Debug` bound.
-    assert_with_state::<WithWhere<DebugState>>();
-}
-
-// --- #[typestate] alongside a const generic
-// --------------------------------------
 
 #[typestate(state = S)]
 struct Buffered<S, const N: usize> {
-    #[allow(dead_code)]
-    s: PhantomData<S>,
-    #[allow(dead_code)]
-    buf: [u8; N],
+    _s: PhantomData<S>,
+    _buf: [u8; N],
 }
 
-#[test]
-fn typestate_ignores_const_generics() {
-    same_state::<Buffered<StateA, 4>>();
+#[typestate(state = S)]
+struct WithBound<S: Debug> {
+    _s: S,
 }
-
-// --- #[typestate] with no `state = ..` infers the sole generic type param
-// --------
 
 #[typestate]
 struct Inferred<S> {
-    #[allow(dead_code)]
-    s: PhantomData<S>,
+    _s: PhantomData<S>,
 }
+
+fn is_state<S: State>() {}
+
+fn has_state_a<T: WithState<State = StateA>>() {}
 
 #[test]
-fn typestate_infers_sole_generic_as_state() {
-    same_state::<Inferred<StateA>>();
-}
+fn state_and_typestate_accept_other_generics() {
+    is_state::<Generic<&str>>();
+    is_state::<Bounded<u8, String>>();
 
-// --- TransmutableState derives despite an extra, non-state-types bound
-// ----------------
-
-#[state_types]
-trait Sized4 {
-    type Value;
-}
-
-#[state]
-struct Sized4State;
-
-impl std::fmt::Debug for Sized4State {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Sized4State")
-    }
-}
-
-#[group(Sized4Group)]
-impl Sized4 for (Sized4State,) {
-    #[size(4)]
-    type Value = u32;
-}
-
-// Extra bounds next to the `#[state_types]` trait still derive
-// `TransmutableState`.
-#[typestate(state = S, unsafe_transmute = true)]
-struct SizedWrap<S: Sized4 + std::fmt::Debug> {
-    #[allow(dead_code)]
-    value: S::Value,
-}
-
-fn assert_transmutable<
-    T: typestate_groups::TransmutableState<To>,
-    To: typestate_groups::State,
->() {
-}
-
-#[test]
-fn transmutable_state_derives_despite_extra_non_state_types_bound() {
-    assert_transmutable::<SizedWrap<Sized4State>, Sized4State>();
+    has_state_a::<Middle<u8, StateA, String>>();
+    has_state_a::<Buffered<StateA, 4>>();
+    has_state_a::<WithBound<StateA>>();
+    has_state_a::<Inferred<StateA>>();
 }

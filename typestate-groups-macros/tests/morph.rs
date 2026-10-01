@@ -46,16 +46,24 @@ where
     }
 }
 
-#[test]
-fn generic_impl_morphs_between_states() {
-    let big = Inner::<Small> { value: 7 }.morph::<Big>();
-    assert_eq!(big.value, 7u64);
+#[typestate]
+struct Tag<S: Meta>(PhantomData<S>);
+
+impl<S: Meta, S2: Meta> MorphFrom<Tag<S>> for Tag<S2> {
+    fn morph_from(_: Tag<S>) -> Self {
+        Tag(PhantomData)
+    }
 }
 
 #[test]
-fn generic_impl_morphs_to_the_same_state() {
+fn generic_impl_morphs_between_and_within_states() {
+    let big = Inner::<Small> { value: 7 }.morph::<Big>();
+    assert_eq!(big.value, 7u64);
+
     let small = Inner::<Small> { value: 7 }.morph::<Small>();
     assert_eq!(small.value, 7u8);
+
+    let Tag(PhantomData) = Tag::<Small>(PhantomData).morph::<Big>();
 }
 
 // --- an outer struct reuses the inner struct's conversion ---
@@ -125,13 +133,10 @@ where
 }
 
 #[test]
-fn try_morph_succeeds_when_the_value_fits() {
+fn try_morph_fails_only_when_the_value_does_not_fit() {
     let small = Narrow::<Big> { value: 200 }.try_morph::<Small>();
     assert_eq!(small, Ok(Narrow { value: 200u8 }));
-}
 
-#[test]
-fn try_morph_fails_when_the_value_does_not_fit() {
     let small = Narrow::<Big> { value: 300 }.try_morph::<Small>();
     assert!(small.is_err());
 }
@@ -164,20 +169,4 @@ fn concrete_impl_keeps_other_generics() {
     };
     let big = small.morph::<Big>();
     assert_eq!((big.head, big.value, big.tail), (1, 4, "t"));
-}
-
-// --- a struct that only holds the state still morphs ---
-
-#[typestate]
-struct Tag<S: Meta>(PhantomData<S>);
-
-impl<S: Meta, S2: Meta> MorphFrom<Tag<S>> for Tag<S2> {
-    fn morph_from(_: Tag<S>) -> Self {
-        Tag(PhantomData)
-    }
-}
-
-#[test]
-fn tuple_struct_without_projection_morphs() {
-    let Tag(PhantomData) = Tag::<Small>(PhantomData).morph::<Big>();
 }

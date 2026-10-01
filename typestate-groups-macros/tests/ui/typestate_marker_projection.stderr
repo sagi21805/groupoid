@@ -1,5 +1,0 @@
-error: replace `S::Marker` with `PhantomData<S>`: a group marker has no value to convert
-  --> tests/ui/typestate_marker_projection.rs:13:16
-   |
-13 |     marker: S::Marker,
-   |                ^^^^^^

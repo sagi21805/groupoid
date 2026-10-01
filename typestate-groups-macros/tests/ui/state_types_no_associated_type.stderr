@@ -1,5 +1,0 @@
-error: add an associated type to `Meta`, such as `type Value;`, for its groups to set
- --> tests/ui/state_types_no_associated_type.rs:6:7
-  |
-6 | trait Meta {
-  |       ^^^^

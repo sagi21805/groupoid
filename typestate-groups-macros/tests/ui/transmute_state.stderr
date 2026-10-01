@@ -1,0 +1,268 @@
+error[E0080]: evaluation panicked: change `#[size(4)]` on `Type1` to the size of `u64`
+  --> tests/ui/transmute_state.rs:68:1
+   |
+68 | #[group(MislabeledGroup)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed here
+
+error[E0277]: convert with `morph` instead of transmuting: `typestate_groups::PinnedTypeSize<SmallGroup, u8, 1>` and `typestate_groups::PinnedTypeSize<BigGroup, u64, 8>` differ in size
+   --> tests/ui/transmute_state.rs:104:28
+    |
+104 |     let _ = unsafe { small.transmute_state::<Big>() };
+    |                            ^^^^^^^^^^^^^^^ unsatisfied trait bound
+    |
+    = help: the trait `typestate_groups::SameSize<typestate_groups::PinnedTypeSize<SmallGroup, u8, 1>>` is not implemented for `typestate_groups::PinnedTypeSize<BigGroup, u64, 8>`
+help: the trait `typestate_groups::SameSize<typestate_groups::UnpinnedTypeSize<G2, T2>>` is implemented for `typestate_groups::PinnedTypeSize<G1, T1, SIZE>`
+   --> $WORKSPACE/typestate-groups/src/error_helpers.rs
+    |
+    | / unsafe impl<G1, T1, G2: PinnedLayout<T2>, T2, const SIZE: usize>
+    | |     SameSize<UnpinnedTypeSize<G2, T2>> for PinnedTypeSize<G1, T1, SIZE>
+    | |_______________________________________________________________________^
+    = note: required for `typestate_groups::PinnedTypeLayout<BigGroup, u64, 8, 8>` to implement `typestate_groups::SameLayout<typestate_groups::PinnedTypeLayout<SmallGroup, u8, 1, 1>>`
+note: required for `Wrap<Small>` to implement `TransmutableState<Big>`
+   --> tests/ui/transmute_state.rs:76:1
+    |
+ 76 | #[typestate(state = S, unsafe_transmute = true)]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound introduced here
+ 77 | struct Wrap<S: Meta> {
+    |        ^^^^^^^^^^^^^
+note: required by a bound in `transmute_state`
+   --> $WORKSPACE/typestate-groups/src/transmute.rs
+    |
+    |     unsafe fn transmute_state<To: State>(
+    |               --------------- required by a bound in this associated function
+...
+    |         Self: TransmutableState<To>,
+    |               ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Isomorphic::transmute_state`
+    = note: this error originates in the attribute macro `typestate` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: add `align = N` to `#[typestate(..)]`, with `N` at least the larger alignment of `typestate_groups::PinnedTypeAlignment<SmallGroup, u8, 1>` and `typestate_groups::PinnedTypeAlignment<BigGroup, u64, 8>`
+   --> tests/ui/transmute_state.rs:104:28
+    |
+104 |     let _ = unsafe { small.transmute_state::<Big>() };
+    |                            ^^^^^^^^^^^^^^^ unsatisfied trait bound
+    |
+    = help: the trait `typestate_groups::SameAlignment<typestate_groups::PinnedTypeAlignment<SmallGroup, u8, 1>>` is not implemented for `typestate_groups::PinnedTypeAlignment<BigGroup, u64, 8>`
+help: the trait `typestate_groups::SameAlignment<typestate_groups::UnpinnedTypeAlignment<G2, T2>>` is implemented for `typestate_groups::PinnedTypeAlignment<G1, T1, ALIGN>`
+   --> $WORKSPACE/typestate-groups/src/error_helpers.rs
+    |
+    | / unsafe impl<G1, T1, G2: PinnedLayout<T2>, T2, const ALIGN: usize>
+    | |     SameAlignment<UnpinnedTypeAlignment<G2, T2>>
+    | |     for PinnedTypeAlignment<G1, T1, ALIGN>
+    | |__________________________________________^
+    = note: required for `typestate_groups::PinnedTypeLayout<BigGroup, u64, 8, 8>` to implement `typestate_groups::SameLayout<typestate_groups::PinnedTypeLayout<SmallGroup, u8, 1, 1>>`
+note: required for `Wrap<Small>` to implement `TransmutableState<Big>`
+   --> tests/ui/transmute_state.rs:76:1
+    |
+ 76 | #[typestate(state = S, unsafe_transmute = true)]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound introduced here
+ 77 | struct Wrap<S: Meta> {
+    |        ^^^^^^^^^^^^^
+note: required by a bound in `transmute_state`
+   --> $WORKSPACE/typestate-groups/src/transmute.rs
+    |
+    |     unsafe fn transmute_state<To: State>(
+    |               --------------- required by a bound in this associated function
+...
+    |         Self: TransmutableState<To>,
+    |               ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Isomorphic::transmute_state`
+    = note: this error originates in the attribute macro `typestate` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: convert with `morph` instead of transmuting: `typestate_groups::PinnedTypeSize<BigGroup, u32, 4>` and `typestate_groups::PinnedTypeSize<WideGroup, u64, 8>` differ in size
+   --> tests/ui/transmute_state.rs:109:26
+    |
+109 |     let _ = unsafe { big.transmute_state::<Wide>() };
+    |                          ^^^^^^^^^^^^^^^ unsatisfied trait bound
+    |
+    = help: the trait `typestate_groups::SameSize<typestate_groups::PinnedTypeSize<BigGroup, u32, 4>>` is not implemented for `typestate_groups::PinnedTypeSize<WideGroup, u64, 8>`
+help: the trait `typestate_groups::SameSize<typestate_groups::UnpinnedTypeSize<G2, T2>>` is implemented for `typestate_groups::PinnedTypeSize<G1, T1, SIZE>`
+   --> $WORKSPACE/typestate-groups/src/error_helpers.rs
+    |
+    | / unsafe impl<G1, T1, G2: PinnedLayout<T2>, T2, const SIZE: usize>
+    | |     SameSize<UnpinnedTypeSize<G2, T2>> for PinnedTypeSize<G1, T1, SIZE>
+    | |_______________________________________________________________________^
+    = note: required for `typestate_groups::PinnedTypeLayout<WideGroup, u64, 8, 8>` to implement `typestate_groups::SameLayout<typestate_groups::PinnedTypeLayout<BigGroup, u32, 4, 4>>`
+note: required for `Pair<Big>` to implement `TransmutableState<Wide>`
+   --> tests/ui/transmute_state.rs:81:1
+    |
+ 81 | #[typestate(state = S, unsafe_transmute = true)]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound introduced here
+ 82 | struct Pair<S: Meta> {
+    |        ^^^^^^^^^^^^^
+note: required by a bound in `transmute_state`
+   --> $WORKSPACE/typestate-groups/src/transmute.rs
+    |
+    |     unsafe fn transmute_state<To: State>(
+    |               --------------- required by a bound in this associated function
+...
+    |         Self: TransmutableState<To>,
+    |               ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Isomorphic::transmute_state`
+    = note: this error originates in the attribute macro `typestate` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: add `align = N` to `#[typestate(..)]`, with `N` at least the larger alignment of `typestate_groups::PinnedTypeAlignment<BigGroup, u32, 4>` and `typestate_groups::PinnedTypeAlignment<WideGroup, u64, 8>`
+   --> tests/ui/transmute_state.rs:109:26
+    |
+109 |     let _ = unsafe { big.transmute_state::<Wide>() };
+    |                          ^^^^^^^^^^^^^^^ unsatisfied trait bound
+    |
+    = help: the trait `typestate_groups::SameAlignment<typestate_groups::PinnedTypeAlignment<BigGroup, u32, 4>>` is not implemented for `typestate_groups::PinnedTypeAlignment<WideGroup, u64, 8>`
+help: the trait `typestate_groups::SameAlignment<typestate_groups::UnpinnedTypeAlignment<G2, T2>>` is implemented for `typestate_groups::PinnedTypeAlignment<G1, T1, ALIGN>`
+   --> $WORKSPACE/typestate-groups/src/error_helpers.rs
+    |
+    | / unsafe impl<G1, T1, G2: PinnedLayout<T2>, T2, const ALIGN: usize>
+    | |     SameAlignment<UnpinnedTypeAlignment<G2, T2>>
+    | |     for PinnedTypeAlignment<G1, T1, ALIGN>
+    | |__________________________________________^
+    = note: required for `typestate_groups::PinnedTypeLayout<WideGroup, u64, 8, 8>` to implement `typestate_groups::SameLayout<typestate_groups::PinnedTypeLayout<BigGroup, u32, 4, 4>>`
+note: required for `Pair<Big>` to implement `TransmutableState<Wide>`
+   --> tests/ui/transmute_state.rs:81:1
+    |
+ 81 | #[typestate(state = S, unsafe_transmute = true)]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound introduced here
+ 82 | struct Pair<S: Meta> {
+    |        ^^^^^^^^^^^^^
+note: required by a bound in `transmute_state`
+   --> $WORKSPACE/typestate-groups/src/transmute.rs
+    |
+    |     unsafe fn transmute_state<To: State>(
+    |               --------------- required by a bound in this associated function
+...
+    |         Self: TransmutableState<To>,
+    |               ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Isomorphic::transmute_state`
+    = note: this error originates in the attribute macro `typestate` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: add `#[size(N)]` to the associated type set to `u8` in `#[group(LooseGroup)]` to transmute it
+   --> tests/ui/transmute_state.rs:113:28
+    |
+113 |     let _ = unsafe { small.transmute_state::<Loose>() };
+    |                            ^^^^^^^^^^^^^^^ unsatisfied trait bound
+    |
+help: the trait `typestate_groups::PinnedLayout<u8>` is not implemented for `LooseGroup`
+   --> tests/ui/transmute_state.rs:45:1
+    |
+ 45 | #[group(LooseGroup)]
+    | ^^^^^^^^^^^^^^^^^^
+help: the trait `TransmutableState<__TypestateGroupsTargetState>` is conditionally implemented for `Wrap<S>`
+   --> tests/ui/transmute_state.rs:76:1
+    |
+ 76 | #[typestate(state = S, unsafe_transmute = true)]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied requirement introduced here: `<Loose as Meta>::__TypestateGroupsLayoutType1: typestate_groups::SameLayout<<Small as Meta>::__TypestateGroupsLayoutType1>`
+    = note: required for `typestate_groups::UnpinnedTypeSize<LooseGroup, u8>` to implement `typestate_groups::SameSize<typestate_groups::PinnedTypeSize<SmallGroup, u8, 1>>`
+    = note: required for `typestate_groups::UnpinnedTypeLayout<LooseGroup, u8>` to implement `typestate_groups::SameLayout<typestate_groups::PinnedTypeLayout<SmallGroup, u8, 1, 1>>`
+note: required for `Wrap<Small>` to implement `TransmutableState<Loose>`
+   --> tests/ui/transmute_state.rs:76:1
+    |
+ 76 | #[typestate(state = S, unsafe_transmute = true)]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound introduced here
+ 77 | struct Wrap<S: Meta> {
+    |        ^^^^^^^^^^^^^
+note: required by a bound in `transmute_state`
+   --> $WORKSPACE/typestate-groups/src/transmute.rs
+    |
+    |     unsafe fn transmute_state<To: State>(
+    |               --------------- required by a bound in this associated function
+...
+    |         Self: TransmutableState<To>,
+    |               ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Isomorphic::transmute_state`
+    = note: this error originates in the attribute macro `group` which comes from the expansion of the attribute macro `typestate` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: add `#[size(N)]` to the associated type set to `u8` in `#[group(LooseGroup)]` to transmute it
+   --> tests/ui/transmute_state.rs:114:28
+    |
+114 |     let _ = unsafe { loose.transmute_state::<Small>() };
+    |                            ^^^^^^^^^^^^^^^ unsatisfied trait bound
+    |
+help: the trait `typestate_groups::PinnedLayout<u8>` is not implemented for `LooseGroup`
+   --> tests/ui/transmute_state.rs:45:1
+    |
+ 45 | #[group(LooseGroup)]
+    | ^^^^^^^^^^^^^^^^^^
+help: the trait `TransmutableState<__TypestateGroupsTargetState>` is conditionally implemented for `Wrap<S>`
+   --> tests/ui/transmute_state.rs:76:1
+    |
+ 76 | #[typestate(state = S, unsafe_transmute = true)]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied requirement introduced here: `<Small as Meta>::__TypestateGroupsLayoutType1: typestate_groups::SameLayout<<Loose as Meta>::__TypestateGroupsLayoutType1>`
+    = note: required for `typestate_groups::PinnedTypeSize<SmallGroup, u8, 1>` to implement `typestate_groups::SameSize<typestate_groups::UnpinnedTypeSize<LooseGroup, u8>>`
+    = note: required for `typestate_groups::PinnedTypeLayout<SmallGroup, u8, 1, 1>` to implement `typestate_groups::SameLayout<typestate_groups::UnpinnedTypeLayout<LooseGroup, u8>>`
+note: required for `Wrap<Loose>` to implement `TransmutableState<Small>`
+   --> tests/ui/transmute_state.rs:76:1
+    |
+ 76 | #[typestate(state = S, unsafe_transmute = true)]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound introduced here
+ 77 | struct Wrap<S: Meta> {
+    |        ^^^^^^^^^^^^^
+note: required by a bound in `transmute_state`
+   --> $WORKSPACE/typestate-groups/src/transmute.rs
+    |
+    |     unsafe fn transmute_state<To: State>(
+    |               --------------- required by a bound in this associated function
+...
+    |         Self: TransmutableState<To>,
+    |               ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Isomorphic::transmute_state`
+    = note: this error originates in the attribute macro `group` which comes from the expansion of the attribute macro `typestate` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: add `align = N` to `#[typestate(..)]`, with `N` at least the larger alignment of `typestate_groups::PinnedTypeAlignment<WideGroup, u64, 8>` and `typestate_groups::PinnedTypeAlignment<BytesGroup, [u8; 8], 1>`
+   --> tests/ui/transmute_state.rs:118:27
+    |
+118 |     let _ = unsafe { wide.transmute_state::<Bytes>() };
+    |                           ^^^^^^^^^^^^^^^ unsatisfied trait bound
+    |
+    = help: the trait `typestate_groups::SameAlignment<typestate_groups::PinnedTypeAlignment<WideGroup, u64, 8>>` is not implemented for `typestate_groups::PinnedTypeAlignment<BytesGroup, [u8; 8], 1>`
+help: the trait `typestate_groups::SameAlignment<typestate_groups::UnpinnedTypeAlignment<G2, T2>>` is implemented for `typestate_groups::PinnedTypeAlignment<G1, T1, ALIGN>`
+   --> $WORKSPACE/typestate-groups/src/error_helpers.rs
+    |
+    | / unsafe impl<G1, T1, G2: PinnedLayout<T2>, T2, const ALIGN: usize>
+    | |     SameAlignment<UnpinnedTypeAlignment<G2, T2>>
+    | |     for PinnedTypeAlignment<G1, T1, ALIGN>
+    | |__________________________________________^
+    = note: required for `typestate_groups::PinnedTypeLayout<BytesGroup, [u8; 8], 8, 1>` to implement `typestate_groups::SameLayout<typestate_groups::PinnedTypeLayout<WideGroup, u64, 8, 8>>`
+note: required for `Wrap<Wide>` to implement `TransmutableState<Bytes>`
+   --> tests/ui/transmute_state.rs:76:1
+    |
+ 76 | #[typestate(state = S, unsafe_transmute = true)]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound introduced here
+ 77 | struct Wrap<S: Meta> {
+    |        ^^^^^^^^^^^^^
+note: required by a bound in `transmute_state`
+   --> $WORKSPACE/typestate-groups/src/transmute.rs
+    |
+    |     unsafe fn transmute_state<To: State>(
+    |               --------------- required by a bound in this associated function
+...
+    |         Self: TransmutableState<To>,
+    |               ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Isomorphic::transmute_state`
+    = note: this error originates in the attribute macro `typestate` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0308]: mismatched types
+   --> tests/ui/transmute_state.rs:122:14
+    |
+121 | fn unrelated_structs(wrap: Wrap<Small>) -> Other<Small> {
+    |                                            ------------ expected `Other<Small>` because of return type
+122 |     unsafe { wrap.transmute_state::<Small>() }
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Other<Small>`, found `Wrap<Small>`
+    |
+    = note: expected struct `Other<Small>`
+               found struct `Wrap<Small>`
+
+error[E0080]: evaluation panicked: move field `value` to the start of `Offset`, or transmute only between states whose types share an alignment: its offset differs in the target state
+  --> tests/ui/transmute_state.rs:92:1
+   |
+92 | #[typestate(state = S, unsafe_transmute = true, align = 8)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Offset<Wide> as typestate_groups::TransmutableState<Bytes>>::LAYOUT_CHECK` failed here
+
+note: erroneous constant encountered
+   --> tests/ui/transmute_state.rs:127:15
+    |
+127 | const _: () = <Offset<Wide> as TransmutableState<Bytes>>::LAYOUT_CHECK;
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked: raise `align = N` on `TooSmall` to at least the largest alignment among its states
+  --> tests/ui/transmute_state.rs:98:1
+   |
+98 | #[typestate(state = S, unsafe_transmute = true, align = 2)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<TooSmall<Wide> as typestate_groups::TransmutableState<Bytes>>::LAYOUT_CHECK` failed here
+
+note: erroneous constant encountered
+   --> tests/ui/transmute_state.rs:130:15
+    |
+130 | const _: () = <TooSmall<Wide> as TransmutableState<Bytes>>::LAYOUT_CHECK;
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
