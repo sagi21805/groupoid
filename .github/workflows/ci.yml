@@ -59,10 +59,11 @@ jobs:
         with:
           components: miri
       - uses: Swatinem/rust-cache@v2
-      - run: cargo miri test --workspace
-      - run: cargo miri test --workspace
+      - run: cargo +nightly miri test --workspace
+      - run: cargo +nightly miri test --workspace
         env:
           MIRIFLAGS: -Zmiri-tree-borrows
+      - run: scripts/miri-expect-ub.sh
 
   msrv:
     name: MSRV
