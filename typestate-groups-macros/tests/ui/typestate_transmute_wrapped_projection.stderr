@@ -1,5 +1,0 @@
-error: make this field `S::Assoc`, a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `morph`
-  --> tests/ui/typestate_transmute_wrapped_projection.rs:22:12
-   |
-22 |     value: Option<S::Value>,
-   |            ^^^^^^^^^^^^^^^^

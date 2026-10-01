@@ -1,7 +1,7 @@
 //! `cast_state` and its ref/mut forms between states whose fields stay
-//! valid.
+//! valid. Runs under `cargo +nightly miri test` too.
 
-use core::{cell::Cell, marker::PhantomData};
+use core::{cell::Cell, marker::PhantomData, num::NonZeroU32};
 use typestate_groups::Isomorphic;
 use typestate_groups_macros::{group, state, state_types, typestate};
 use zerocopy::{FromBytes, Immutable, IntoBytes};
@@ -18,6 +18,10 @@ struct Unsigned;
 struct Signed;
 #[state]
 struct Pixel;
+#[state]
+struct Letter;
+#[state]
+struct Count;
 
 #[derive(FromBytes, IntoBytes, Immutable)]
 #[repr(C)]
@@ -52,12 +56,103 @@ impl Meta for (Pixel,) {
     type Extra = i16;
 }
 
+#[group(LetterGroup)]
+impl Meta for (Letter,) {
+    #[size(4)]
+    type Value = char;
+    #[size(2)]
+    type Extra = [u8; 2];
+}
+
+#[group(CountGroup)]
+impl Meta for (Count,) {
+    #[size(4)]
+    type Value = NonZeroU32;
+    #[size(2)]
+    type Extra = [u8; 2];
+}
+
+/// Padding sits between `extra` and an 8-aligned `payload`.
 #[typestate(state = S, unsafe_transmute = true, align = 8)]
 struct Wrap<S: Meta, T> {
     value: S::Value,
     extra: S::Extra,
     payload: T,
     _state: PhantomData<S>,
+}
+
+fn wrap<S: Meta, T>(
+    value: S::Value,
+    extra: S::Extra,
+    payload: T,
+) -> Wrap<S, T> {
+    Wrap {
+        value,
+        extra,
+        payload,
+        _state: PhantomData,
+    }
+}
+
+#[test]
+fn cast_state_reinterprets_every_projection() {
+    let unsigned =
+        wrap::<Unsigned, _>(u32::MAX, [0x34, 0x12], String::from("owned"));
+    let signed = unsigned.cast_state::<Signed>();
+    assert_eq!(signed.value, -1);
+    assert_eq!(signed.extra, u16::from_ne_bytes([0x34, 0x12]));
+    assert_eq!(signed.payload, "owned");
+
+    let rgba = Rgba {
+        r: 1,
+        g: 2,
+        b: 3,
+        a: 4,
+    };
+    let unsigned = wrap::<Pixel, _>(rgba, -1, Box::new(5u64))
+        .cast_state::<Unsigned>();
+    assert_eq!(unsigned.value, u32::from_ne_bytes([1, 2, 3, 4]));
+    assert_eq!(unsigned.extra, [0xff, 0xff]);
+    assert_eq!(*unsigned.payload, 5);
+}
+
+#[test]
+fn cast_state_out_of_types_with_invalid_bit_patterns() {
+    let letter = wrap::<Letter, _>('z', [0, 0], ());
+    assert_eq!(letter.cast_state::<Unsigned>().value, 'z' as u32);
+
+    let count = wrap::<Count, _>(NonZeroU32::MIN, [0, 0], ());
+    assert_eq!(count.cast_state_ref::<Unsigned>().value, 1);
+}
+
+#[test]
+fn cast_state_ref_interleaves_with_other_shared_borrows() {
+    let signed = wrap::<Signed, _>(-2, 0, vec![1u8, 2]);
+    let plain = &signed;
+    let unsigned = signed.cast_state_ref::<Unsigned>();
+    let pixel = signed.cast_state_ref::<Pixel>();
+
+    assert_eq!(unsigned.value, u32::MAX - 1);
+    assert_eq!(plain.value, -2);
+    assert_eq!(pixel.value.r, 0xfe);
+    assert_eq!(unsigned.payload, plain.payload);
+}
+
+#[test]
+fn cast_state_mut_writes_are_seen_after_the_borrow_ends() {
+    let mut unsigned = wrap::<Unsigned, _>(0, [0, 0], String::new());
+
+    {
+        let pixel = unsigned.cast_state_mut::<Pixel>();
+        pixel.value.a = 0x80;
+        pixel.payload.push_str("written");
+    }
+    assert_eq!(unsigned.value, u32::from_ne_bytes([0, 0, 0, 0x80]));
+    assert_eq!(unsigned.payload, "written");
+
+    let signed = unsigned.cast_state_mut::<Signed>();
+    signed.cast_state_mut::<Pixel>().value.r = 8;
+    assert_eq!(unsigned.value.to_ne_bytes()[0], 8);
 }
 
 #[state_types]
@@ -96,67 +191,14 @@ struct Slot<S: Flagged> {
 }
 
 #[test]
-fn cast_state_reinterprets_every_projection() {
-    let unsigned = Wrap::<Unsigned, u64> {
-        value: u32::MAX,
-        extra: [0x34, 0x12],
-        payload: 7,
-        _state: PhantomData,
-    };
-
-    let signed: Wrap<Signed, u64> = unsigned.cast_state();
-    assert_eq!(signed.value, -1);
-    assert_eq!(signed.extra, u16::from_ne_bytes([0x34, 0x12]));
-    assert_eq!(signed.payload, 7);
-}
-
-#[test]
-fn cast_state_reads_a_derived_struct_as_an_integer() {
-    let pixel = Wrap::<Pixel, ()> {
-        value: Rgba {
-            r: 1,
-            g: 2,
-            b: 3,
-            a: 4,
-        },
-        extra: -1,
-        payload: (),
-        _state: PhantomData,
-    };
-
-    let unsigned = pixel.cast_state::<Unsigned>();
-    assert_eq!(unsigned.value, u32::from_ne_bytes([1, 2, 3, 4]));
-    assert_eq!(unsigned.extra, [0xff, 0xff]);
-}
-
-#[test]
-fn cast_state_ref_and_mut_round_trip() {
-    let mut signed = Wrap::<Signed, u8> {
-        value: -2,
-        extra: 0,
-        payload: 0,
-        _state: PhantomData,
-    };
-
-    assert_eq!(signed.cast_state_ref::<Unsigned>().value, u32::MAX - 1);
-    signed.cast_state_mut::<Unsigned>().value = 5;
-    assert_eq!(signed.value, 5);
-}
-
-#[test]
-fn cast_state_turns_a_bool_into_a_byte() {
+fn cast_state_turns_bools_and_cells_into_bytes() {
     let flag = Slot::<Flag> { value: true };
-
     assert_eq!(flag.cast_state_ref::<Byte>().value, 1);
     assert_eq!(flag.cast_state::<Byte>().value, 1);
-}
 
-#[test]
-fn cast_state_mut_and_by_value_accept_cells() {
     let mut shared = Slot::<Shared> {
         value: Cell::new(3),
     };
-
     shared.cast_state_mut::<Byte>().value = 4;
     assert_eq!(shared.value.get(), 4);
     assert_eq!(shared.cast_state::<Byte>().value, 4);

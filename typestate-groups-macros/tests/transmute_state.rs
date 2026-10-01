@@ -1,5 +1,11 @@
-// `transmute_state` and its ref/mut forms between same-sized states of
-// one struct.
+//! `transmute_state` and its ref/mut forms. Runs under
+//! `cargo +nightly miri test` too.
+
+use core::{
+    fmt::Debug,
+    marker::{PhantomData, PhantomPinned},
+    num::NonZeroU32,
+};
 use typestate_groups::Isomorphic;
 use typestate_groups_macros::{group, state, state_types, typestate};
 
@@ -9,73 +15,178 @@ trait Meta {
 }
 
 #[state]
-struct Small;
+#[derive(Debug)]
+struct Unsigned;
 #[state]
-struct Big;
+#[derive(Debug)]
+struct Signed;
+#[state]
+struct Byte;
+#[state]
+struct Flag;
+#[state]
+struct Letter;
+#[state]
+struct Count;
+#[state]
+struct Wide;
+#[state]
+struct Bytes;
 
-#[group(SmallGroup)]
-impl Meta for (Small,) {
+#[group(UnsignedGroup)]
+impl Meta for (Unsigned,) {
     #[size(4)]
     type Value = u32;
 }
 
-#[group(BigGroup)]
-impl Meta for (Big,) {
+#[group(SignedGroup)]
+impl Meta for (Signed,) {
     #[size(4)]
     type Value = i32;
 }
 
-#[typestate(state = S, unsafe_transmute = true)]
+#[group(ByteGroup)]
+impl Meta for (Byte,) {
+    #[size(1)]
+    type Value = u8;
+}
+
+#[group(FlagGroup)]
+impl Meta for (Flag,) {
+    #[size(1)]
+    type Value = bool;
+}
+
+#[group(LetterGroup)]
+impl Meta for (Letter,) {
+    #[size(4)]
+    type Value = char;
+}
+
+#[group(CountGroup)]
+impl Meta for (Count,) {
+    #[size(4)]
+    type Value = NonZeroU32;
+}
+
+#[group(WideGroup)]
+impl Meta for (Wide,) {
+    #[size(8)]
+    type Value = u64;
+}
+
+#[group(BytesGroup)]
+impl Meta for (Bytes,) {
+    #[size(8)]
+    type Value = [u8; 8];
+}
+
+#[typestate(unsafe_transmute = true)]
 struct Wrap<S: Meta> {
     value: S::Value,
 }
 
 #[test]
-fn transmute_state_between_same_sized_states_of_the_same_struct() {
-    let small = Wrap::<Small> {
-        value: 0xdead_beefu32,
+fn transmute_state_by_value_ref_and_mut() {
+    let unsigned = Wrap::<Unsigned> { value: 0xdead_beef };
+    // SAFETY: every bit pattern is a valid `i32`.
+    let mut signed = unsafe { unsigned.transmute_state::<Signed>() };
+    assert_eq!(signed.value, 0xdead_beefu32 as i32);
+
+    signed.value = 7;
+    // SAFETY: every bit pattern is a valid `u32`.
+    let unsigned: &Wrap<Unsigned> =
+        unsafe { signed.transmute_state_ref() };
+    assert_eq!(unsigned.value, 7);
+
+    // SAFETY: every bit pattern is a valid `u32` and `i32`.
+    unsafe { signed.transmute_state_mut::<Unsigned>() }.value = 9;
+    assert_eq!(signed.value, 9);
+}
+
+#[test]
+fn transmute_state_into_valid_bits_of_a_narrower_type() {
+    let byte = Wrap::<Byte> { value: 1 };
+    // SAFETY: 1 is a valid `bool`.
+    let flag: Wrap<Flag> = unsafe { byte.transmute_state() };
+    assert!(flag.value);
+
+    let unsigned = Wrap::<Unsigned> { value: 'z' as u32 };
+    // SAFETY: `'z' as u32` is a valid `char`.
+    let letter: Wrap<Letter> = unsafe { unsigned.transmute_state() };
+    assert_eq!(letter.value, 'z');
+
+    let mut unsigned = Wrap::<Unsigned> { value: 7 };
+    // SAFETY: 7 is a valid `NonZeroU32`, and the borrow writes none.
+    let count: &mut Wrap<Count> =
+        unsafe { unsigned.transmute_state_mut() };
+    assert_eq!(count.value.get(), 7);
+}
+
+/// The projection need not come first, ZSTs and fields without `S` ride
+/// along, and `T` carries over into the target.
+#[typestate(state = S, unsafe_transmute = true)]
+struct Mixed<S: Meta, T> {
+    head: u16,
+    value: S::Value,
+    tail: T,
+    _unit: (),
+    _pinned: PhantomPinned,
+    _state: PhantomData<fn() -> S>,
+}
+
+#[test]
+fn transmute_state_keeps_the_other_fields() {
+    let unsigned = Mixed::<Unsigned, String> {
+        head: 1,
+        value: 2,
+        tail: "owned".into(),
+        _unit: (),
+        _pinned: PhantomPinned,
+        _state: PhantomData,
     };
-    let big = unsafe { small.transmute_state::<Big>() };
-    let big: Wrap<Big> = big;
-    assert_eq!(big.value, 0xdead_beefu32 as i32);
+    // SAFETY: every bit pattern is a valid `i32`.
+    let signed: Mixed<Signed, String> =
+        unsafe { unsigned.transmute_state::<Signed>() };
+
+    assert_eq!(
+        (signed.head, signed.value, signed.tail.as_str()),
+        (1, 2, "owned")
+    );
+}
+
+/// `u64` and `[u8; 8]` differ in alignment, so `align = 8` pins it.
+#[typestate(state = S, unsafe_transmute = true, align = 8)]
+struct Forced<S: Meta> {
+    value: S::Value,
+    tag: u8,
 }
 
 #[test]
-fn transmute_state_ref_and_mut_round_trip() {
-    let mut small = Wrap::<Small> { value: 7 };
-    {
-        let big_ref: &Wrap<Big> =
-            unsafe { small.transmute_state_ref::<Big>() };
-        assert_eq!(big_ref.value, 7);
-    }
-    {
-        let big_mut: &mut Wrap<Big> =
-            unsafe { small.transmute_state_mut::<Big>() };
-        big_mut.value = 9;
-    }
-    assert_eq!(small.value, 9);
-}
+fn forced_alignment_bridges_differently_aligned_states() {
+    assert_eq!(align_of::<Forced<Bytes>>(), 8);
 
-// The target state can also be left to inference from the expected type:
-// `Target` is a projection through the single `TransmutableState` impl
-// `#[typestate]` generates, so unifying it with `Wrap<Big>` settles `To`.
-#[test]
-fn target_state_inferred_from_expected_type() {
-    let small = Wrap::<Small> { value: 3 };
-    let big: Wrap<Big> = unsafe { small.transmute_state() };
-    assert_eq!(big.value, 3);
+    let wide = Forced::<Wide> {
+        value: u64::from_ne_bytes([1, 2, 3, 4, 5, 6, 7, 8]),
+        tag: 9,
+    };
+    // SAFETY: every bit pattern is a valid `[u8; 8]`.
+    let bytes = unsafe { wide.transmute_state::<Bytes>() };
+
+    assert_eq!((bytes.value, bytes.tag), ([1, 2, 3, 4, 5, 6, 7, 8], 9));
 }
 
 // A parenthesised projection, or one substituted through a `macro_rules!`
 // `$ty` (which reaches the attribute wrapped in an invisible group), is
-// still a bare projection.
+// still a bare projection. Bounds next to the `#[state_types]` trait
+// don't stop the transmute.
 #[typestate(state = S, unsafe_transmute = true)]
-#[allow(unused_parens)]
-struct Paren<S: Meta> {
+#[expect(unused_parens, reason = "checks a parenthesised projection")]
+struct Paren<S: Meta + Debug> {
     value: (S::Value),
 }
 
-macro_rules! wrap_via_macro {
+macro_rules! via_macro {
     ($ty:ty) => {
         #[typestate(state = S, unsafe_transmute = true)]
         struct ViaMacro<S: Meta> {
@@ -83,15 +194,17 @@ macro_rules! wrap_via_macro {
         }
     };
 }
-wrap_via_macro!(S::Value);
+via_macro!(S::Value);
 
 #[test]
 fn transmute_state_sees_through_parens_and_macro_groups() {
-    let big: Paren<Big> =
-        unsafe { Paren::<Small> { value: 3 }.transmute_state::<Big>() };
-    assert_eq!(big.value, 3);
+    // SAFETY: every bit pattern is a valid `i32`.
+    let signed: Paren<Signed> =
+        unsafe { Paren::<Unsigned> { value: 3 }.transmute_state() };
+    assert_eq!(signed.value, 3);
 
-    let big: ViaMacro<Big> =
-        unsafe { ViaMacro::<Small> { value: 5 }.transmute_state::<Big>() };
-    assert_eq!(big.value, 5);
+    // SAFETY: every bit pattern is a valid `i32`.
+    let signed: ViaMacro<Signed> =
+        unsafe { ViaMacro::<Unsigned> { value: 5 }.transmute_state() };
+    assert_eq!(signed.value, 5);
 }
