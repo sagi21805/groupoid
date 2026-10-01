@@ -1,6 +1,7 @@
 //! Unchecked `transmute_state` calls that Miri must reject as undefined
-//! behaviour. `cast_state` refuses each of them at compile time; the
-//! matching UI test is named on every case.
+//! behaviour. `tests/ui/cast_state_rejects_miri_ub.rs` writes the same
+//! cases, under the same names, with `cast_state`, and none of them
+//! compile.
 //!
 //! UB stops Miri instead of panicking, so `#[should_panic]` can't catch
 //! it. Every case is ignored; run one at a time to see Miri reject it:
@@ -99,7 +100,6 @@ struct Large<S: Word> {
     value: S::Value,
 }
 
-/// `cast_state_invalid_target`
 #[test]
 #[ignore = "undefined behaviour: run alone under Miri"]
 fn transmute_state_u8_two_into_bool() {
@@ -108,7 +108,6 @@ fn transmute_state_u8_two_into_bool() {
     assert!(flag.value);
 }
 
-/// `cast_state_invalid_target`
 #[test]
 #[ignore = "undefined behaviour: run alone under Miri"]
 fn transmute_state_surrogate_into_char() {
@@ -117,7 +116,6 @@ fn transmute_state_surrogate_into_char() {
     assert_eq!(letter.value.len_utf8(), 3);
 }
 
-/// `cast_state_invalid_target`
 #[test]
 #[ignore = "undefined behaviour: run alone under Miri"]
 fn transmute_state_zero_into_non_zero() {
@@ -126,7 +124,6 @@ fn transmute_state_zero_into_non_zero() {
     assert_eq!(count.value.get(), 0);
 }
 
-/// `cast_state_padded_source`
 #[test]
 #[ignore = "undefined behaviour: run alone under Miri"]
 fn transmute_state_reads_padding_as_an_integer() {
@@ -137,7 +134,6 @@ fn transmute_state_reads_padding_as_an_integer() {
     assert_ne!(bits.value, 0);
 }
 
-/// `cast_state_mut_one_way`
 #[test]
 #[ignore = "undefined behaviour: run alone under Miri"]
 fn transmute_state_mut_writes_an_invalid_bool_back() {
@@ -146,7 +142,6 @@ fn transmute_state_mut_writes_an_invalid_bool_back() {
     assert!(flag.value);
 }
 
-/// `cast_state_ref_cell`
 #[test]
 #[ignore = "undefined behaviour: run alone under Miri"]
 fn transmute_state_ref_writes_through_a_shared_integer() {

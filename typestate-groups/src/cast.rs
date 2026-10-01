@@ -28,18 +28,17 @@ unsafe impl<S: zerocopy::IntoBytes, D: zerocopy::FromBytes> CastFrom<S>
 {
 }
 
-/// Every valid `Src` is a valid `Self` of the same size, and neither
-/// holds an `UnsafeCell`.
+/// Neither `Src` nor `Self` holds an `UnsafeCell`, so a `&Src` can be
+/// read as a `&Self`.
 ///
-/// Implemented for every `Src: IntoBytes + Immutable` and
-/// `Self: FromBytes + Immutable`, from [`zerocopy`]. `#[typestate]`
-/// requires it of every field that projects through the state for
+/// Implemented for every `Src: Immutable` and `Self: Immutable`, from
+/// [`zerocopy`]. `#[typestate]` requires it next to [`CastFrom`] of every
+/// field that projects through the state for
 /// [`cast_state_ref`](crate::Isomorphic::cast_state_ref).
 ///
 /// # Safety
 ///
-/// `Self` must meet [`CastFrom<Src>`], and neither `Self` nor `Src` may
-/// hold an `UnsafeCell`.
+/// Neither `Self` nor `Src` may hold an `UnsafeCell`.
 #[diagnostic::on_unimplemented(
     message = "cast by value with `cast_state` or `cast_state_mut`: \
                `{Src}` or `{Self}` may hold an `UnsafeCell` that `&` \
@@ -47,15 +46,12 @@ unsafe impl<S: zerocopy::IntoBytes, D: zerocopy::FromBytes> CastFrom<S>
     note = "a cast through `&` also needs `{Src}` and `{Self}` to be \
             `zerocopy::Immutable`"
 )]
-pub unsafe trait CastRefFrom<Src>: CastFrom<Src> {}
+pub unsafe trait CastRefFrom<Src> {}
 
-// SAFETY: `CastFrom` proves the bits valid, and `Immutable` rules out an
-// `UnsafeCell` in either type.
+// SAFETY: `Immutable` rules out an `UnsafeCell` in either type.
 #[diagnostic::do_not_recommend]
-unsafe impl<S, D> CastRefFrom<S> for D
-where
-    S: zerocopy::IntoBytes + zerocopy::Immutable,
-    D: zerocopy::FromBytes + zerocopy::Immutable,
+unsafe impl<S: zerocopy::Immutable, D: zerocopy::Immutable> CastRefFrom<S>
+    for D
 {
 }
 
@@ -88,7 +84,7 @@ impl Access for Exclusive {}
 /// |---|---|
 /// | [`Owned`] | `To::P: CastFrom<S::P>` |
 /// | [`Exclusive`] | `To::P: CastFrom<S::P>`, `S::P: CastFrom<To::P>` |
-/// | [`Shared`] | `To::P: CastRefFrom<S::P>` |
+/// | [`Shared`] | `To::P: CastFrom<S::P>`, `To::P: CastRefFrom<S::P>` |
 ///
 /// `&mut` needs both directions because the source sees what the target
 /// wrote once the borrow ends. `&` rules out `UnsafeCell` because a shared

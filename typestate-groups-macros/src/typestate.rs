@@ -228,9 +228,10 @@ impl TypeState {
                 forward,
                 parse_quote!(#src: ::typestate_groups::CastFrom<#dst>),
             ],
-            Access::Shared => vec![parse_quote! {
-                #dst: ::typestate_groups::CastRefFrom<#src>
-            }],
+            Access::Shared => vec![
+                forward,
+                parse_quote!(#dst: ::typestate_groups::CastRefFrom<#src>),
+            ],
         }
     }
 
