@@ -1,7 +1,5 @@
 // A template with several associated types: three pinned, one not.
 
-use std::ptr::NonNull;
-
 use groupoid::{Isomorphic, MorphFrom, Morphic, State};
 use groupoid_macros::{
     group, group_impl, group_trait, state, template, typestate,
@@ -50,14 +48,6 @@ struct Triple<S: Meta> {
     a: S::Type1,
     b: S::Type2,
     c: S::Type3,
-}
-
-#[typestate(state = S)]
-#[derive(Debug, PartialEq)]
-struct Example2<S: Meta> {
-    a: S::Type1,
-    b: S::Type2,
-    c: NonNull<S::Type3>,
 }
 
 #[test]
