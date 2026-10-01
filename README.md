@@ -222,7 +222,7 @@ impls. For a conversion that can fail, implement `TryMorphFrom` and call
 
 ```toml
 [dependencies]
-typestate-groups = "0.1"
+typestate-groups = "0.2"
 ```
 
 ## License
