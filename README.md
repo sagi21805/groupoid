@@ -1,7 +1,7 @@
-# groupoid
+# typestate-groups
 
-[![crates.io](https://img.shields.io/crates/v/groupoid.svg)](https://crates.io/crates/groupoid)
-[![docs.rs](https://docs.rs/groupoid/badge.svg)](https://docs.rs/groupoid)
+[![crates.io](https://img.shields.io/crates/v/typestate-groups.svg)](https://crates.io/crates/typestate-groups)
+[![docs.rs](https://docs.rs/typestate-groups/badge.svg)](https://docs.rs/typestate-groups)
 [![CI](https://github.com/sagi21805/groupoid/actions/workflows/ci.yml/badge.svg)](https://github.com/sagi21805/groupoid/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
@@ -17,9 +17,9 @@ A sensor frame holds raw ADC counts (`u16`) in two states and volts
 (`f32`) in a third. `Report` gets one impl per group:
 
 ```rust
-use groupoid::{group, group_impl, group_trait, state, template, typestate};
+use typestate_groups::{group, group_impl, group_trait, state, state_types, typestate};
 
-#[template]
+#[state_types]
 trait Stage {
     type Sample;
 }
@@ -97,13 +97,13 @@ impl<S: Stage<Sample = u16>> Report for Frame<S> { .. }
 impl<S: Stage<Sample = f32>> Report for Frame<S> { .. }
 ```
 
-With `groupoid`, `{lo}` is a `u16` in one impl and `{lo:.2}` formats an
+With `typestate-groups`, `{lo}` is a `u16` in one impl and `{lo:.2}` formats an
 `f32` in the other. Add a state to a group's tuple and it has `report()`
 with no new code.
 
 ## Changing state
 
-A template can declare several associated types. A packet header below
+A `#[state_types]` trait can declare several associated types. A packet header below
 carries an address and a port, and moves through three states:
 
 - `Received` holds the raw bytes.
@@ -116,11 +116,11 @@ carries an address and a port, and moves through three states:
 ```rust
 use core::net::Ipv4Addr;
 
-use groupoid::{
-    Isomorphic, MorphFrom, Morphic, group, state, template, typestate,
+use typestate_groups::{
+    Isomorphic, MorphFrom, Morphic, group, state, state_types, typestate,
 };
 
-#[template]
+#[state_types]
 trait Wire {
     type Addr;
     type Port;
@@ -215,14 +215,14 @@ impls. For a conversion that can fail, implement `TryMorphFrom` and call
 
 ## Crates
 
-- [`groupoid`](groupoid) — the public API.
-- [`groupoid_macros`](groupoid_macros) — procedural macros powering `groupoid`.
+- [`typestate-groups`](typestate-groups) — the public API.
+- [`typestate-groups-macros`](typestate-groups-macros) — procedural macros powering `typestate-groups`.
 
 ## Installation
 
 ```toml
 [dependencies]
-groupoid = "0.1"
+typestate-groups = "0.1"
 ```
 
 ## License
