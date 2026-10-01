@@ -207,8 +207,8 @@ impl TypeState {
 
     /// The bounds `projection` needs to be cast under `access`.
     ///
-    /// `Value, Shared -> [S2::Value: CastFrom<S::Value>, S::Value:
-    /// Immutable, S2::Value: Immutable]`
+    /// `Value, Exclusive -> [S2::Value: CastFrom<S::Value>, S::Value:
+    /// CastFrom<S2::Value>]`
     fn cast_predicates(
         &self,
         projection: &Ident,
@@ -228,11 +228,9 @@ impl TypeState {
                 forward,
                 parse_quote!(#src: ::typestate_groups::CastFrom<#dst>),
             ],
-            Access::Shared => vec![
-                forward,
-                parse_quote!(#src: ::typestate_groups::zerocopy::Immutable),
-                parse_quote!(#dst: ::typestate_groups::zerocopy::Immutable),
-            ],
+            Access::Shared => vec![parse_quote! {
+                #dst: ::typestate_groups::CastRefFrom<#src>
+            }],
         }
     }
 

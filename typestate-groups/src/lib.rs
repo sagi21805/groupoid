@@ -10,7 +10,7 @@ mod morph;
 mod transmute;
 
 pub use cast::{
-    Access, CastFrom, CastableState, Exclusive, Owned, Shared,
+    Access, CastFrom, CastRefFrom, CastableState, Exclusive, Owned, Shared,
 };
 pub use error_helpers::PinnedLayout;
 pub use layout::{

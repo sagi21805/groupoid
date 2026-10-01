@@ -15,16 +15,47 @@ use crate::{State, TransmutableState};
 #[diagnostic::on_unimplemented(
     message = "convert with `morph`: `{Src}` may hold bits that are not \
                a valid `{Self}`",
-    note = "derive `zerocopy::IntoBytes` on `{Src}` and \
-            `zerocopy::FromBytes` on `{Self}` if every `{Src}` is a \
-            valid `{Self}`"
+    note = "a cast needs `{Src}: zerocopy::IntoBytes` (no padding) and \
+            `{Self}: zerocopy::FromBytes` (every bit pattern valid)"
 )]
 pub unsafe trait CastFrom<Src> {}
 
 // SAFETY: `IntoBytes` gives `S` no uninitialized bytes, and `FromBytes`
 // accepts every initialized bit pattern as a `D`.
+#[diagnostic::do_not_recommend]
 unsafe impl<S: zerocopy::IntoBytes, D: zerocopy::FromBytes> CastFrom<S>
     for D
+{
+}
+
+/// Every valid `Src` is a valid `Self` of the same size, and neither
+/// holds an `UnsafeCell`.
+///
+/// Implemented for every `Src: IntoBytes + Immutable` and
+/// `Self: FromBytes + Immutable`, from [`zerocopy`]. `#[typestate]`
+/// requires it of every field that projects through the state for
+/// [`cast_state_ref`](crate::Isomorphic::cast_state_ref).
+///
+/// # Safety
+///
+/// `Self` must meet [`CastFrom<Src>`], and neither `Self` nor `Src` may
+/// hold an `UnsafeCell`.
+#[diagnostic::on_unimplemented(
+    message = "cast by value with `cast_state` or `cast_state_mut`: \
+               `{Src}` or `{Self}` may hold an `UnsafeCell` that `&` \
+               could write through",
+    note = "a cast through `&` also needs `{Src}` and `{Self}` to be \
+            `zerocopy::Immutable`"
+)]
+pub unsafe trait CastRefFrom<Src>: CastFrom<Src> {}
+
+// SAFETY: `CastFrom` proves the bits valid, and `Immutable` rules out an
+// `UnsafeCell` in either type.
+#[diagnostic::do_not_recommend]
+unsafe impl<S, D> CastRefFrom<S> for D
+where
+    S: zerocopy::IntoBytes + zerocopy::Immutable,
+    D: zerocopy::FromBytes + zerocopy::Immutable,
 {
 }
 
@@ -57,10 +88,10 @@ impl Access for Exclusive {}
 /// |---|---|
 /// | [`Owned`] | `To::P: CastFrom<S::P>` |
 /// | [`Exclusive`] | `To::P: CastFrom<S::P>`, `S::P: CastFrom<To::P>` |
-/// | [`Shared`] | `To::P: CastFrom<S::P>`, `S::P` and `To::P` are `Immutable` |
+/// | [`Shared`] | `To::P: CastRefFrom<S::P>` |
 ///
 /// `&mut` needs both directions because the source sees what the target
-/// wrote once the borrow ends. `&` needs `Immutable` because a shared
+/// wrote once the borrow ends. `&` rules out `UnsafeCell` because a shared
 /// `Cell` viewed as another type could be written through the alias.
 ///
 /// # Safety
