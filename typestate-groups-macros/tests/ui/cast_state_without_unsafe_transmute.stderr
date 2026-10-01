@@ -1,0 +1,20 @@
+error[E0277]: add `unsafe_transmute = true` to the `#[typestate]` of `Wrap<A>` to cast it into state `B`
+  --> tests/ui/cast_state_without_unsafe_transmute.rs:34:15
+   |
+34 |     let _ = a.cast_state::<B>();
+   |               ^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `CastableState<B, typestate_groups::Owned>` is not implemented for `Wrap<A>`
+  --> tests/ui/cast_state_without_unsafe_transmute.rs:29:1
+   |
+29 | struct Wrap<S: Meta> {
+   | ^^^^^^^^^^^^^^^^^^^^
+   = note: or convert by value with `morph`
+note: required by a bound in `cast_state`
+  --> $WORKSPACE/typestate-groups/src/transmute.rs
+   |
+   |     fn cast_state<To: State>(self) -> <Self as Restate<To>>::Target
+   |        ---------- required by a bound in this associated function
+   |     where
+   |         Self: CastableState<To, Owned>,
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Isomorphic::cast_state`
