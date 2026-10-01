@@ -3,11 +3,15 @@
 #[macro_use]
 mod macros;
 
+mod cast;
 mod error_helpers;
 mod layout;
 mod morph;
 mod transmute;
 
+pub use cast::{
+    Access, CastFrom, CastableState, Exclusive, Owned, Shared,
+};
 pub use error_helpers::PinnedLayout;
 pub use layout::{
     PinnedTypeAlignment, PinnedTypeLayout, PinnedTypeSize, SameAlignment,
@@ -17,6 +21,7 @@ pub use layout::{
 pub use morph::{MorphFrom, Morphic, TryMorphFrom};
 pub use transmute::{Isomorphic, TransmutableState};
 pub use typestate_groups_macros::*;
+pub use zerocopy;
 
 /// A type that represents a state of an object.
 pub trait State {}

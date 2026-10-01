@@ -23,7 +23,7 @@ pub(crate) struct TypeState {
     target_state: TypeParam,
     /// `Wrap<S> -> Wrap<__TypestateGroupsTargetState>`
     target_ty: TokenStream,
-    /// Whether `TransmutableState` is derived too.
+    /// Whether `TransmutableState` and `CastableState` are derived too.
     transmute: Transmute,
     /// The distinct associated types the fields project through the
     /// state (`Value` in `S::Value`), in order of first appearance.
@@ -78,12 +78,16 @@ impl TypeState {
     pub(crate) fn generate_typestate_impls(&self) -> TokenStream {
         let item_struct = &self.item_struct;
         let with_state_impl = self.with_state_impl();
-        let transmutable_state_impl = match &self.transmute {
-            Transmute::On(align) => {
-                Some(self.transmutable_state_impl(align))
-            }
-            Transmute::Off => None,
-        };
+        let (transmutable_state_impl, castable_state_impls) =
+            match &self.transmute {
+                Transmute::On(align) => (
+                    Some(self.transmutable_state_impl(align)),
+                    Access::ALL
+                        .map(|access| self.castable_state_impl(access))
+                        .to_vec(),
+                ),
+                Transmute::Off => (None, Vec::new()),
+            };
         let restate_impl = self.restate_impl();
 
         quote! {
@@ -94,6 +98,8 @@ impl TypeState {
             #restate_impl
 
             #transmutable_state_impl
+
+            #(#castable_state_impls)*
         }
     }
 
@@ -165,6 +171,68 @@ impl TypeState {
             {
                 #layout_check
             }
+        }
+    }
+
+    /// `CastableState<S2, A>` for `Struct<S>`, for every `S2` whose
+    /// projections stay valid under access `A`.
+    fn castable_state_impl(&self, access: Access) -> TokenStream {
+        let struct_ident = &self.item_struct.ident;
+        let target_state = &self.target_state.ident;
+        let marker = access.marker();
+        let (_, ty_generics, _) =
+            self.item_struct.generics.split_for_impl();
+
+        let mut generics = self.target_generics();
+        let predicates = &mut generics.make_where_clause().predicates;
+        predicates.push(parse_quote! {
+            #struct_ident #ty_generics:
+                ::typestate_groups::TransmutableState<#target_state>
+        });
+        predicates.extend(self.projections.iter().flat_map(
+            |projection| self.cast_predicates(projection, access),
+        ));
+        let (impl_generics, _, where_clause) = generics.split_for_impl();
+
+        quote! {
+            // SAFETY: the where-clause proves every projection valid in
+            // the target state under this access, and every other field
+            // keeps its type.
+            unsafe impl #impl_generics ::typestate_groups::CastableState<#target_state, #marker>
+                for #struct_ident #ty_generics #where_clause
+            {
+            }
+        }
+    }
+
+    /// The bounds `projection` needs to be cast under `access`.
+    ///
+    /// `Value, Shared -> [S2::Value: CastFrom<S::Value>, S::Value:
+    /// Immutable, S2::Value: Immutable]`
+    fn cast_predicates(
+        &self,
+        projection: &Ident,
+        access: Access,
+    ) -> Vec<WherePredicate> {
+        let state = &self.state;
+        let target_state = &self.target_state.ident;
+        let src = quote!(#state::#projection);
+        let dst = quote!(#target_state::#projection);
+        let forward = parse_quote! {
+            #dst: ::typestate_groups::CastFrom<#src>
+        };
+
+        match access {
+            Access::Owned => vec![forward],
+            Access::Exclusive => vec![
+                forward,
+                parse_quote!(#src: ::typestate_groups::CastFrom<#dst>),
+            ],
+            Access::Shared => vec![
+                forward,
+                parse_quote!(#src: ::typestate_groups::zerocopy::Immutable),
+                parse_quote!(#dst: ::typestate_groups::zerocopy::Immutable),
+            ],
         }
     }
 
@@ -294,6 +362,28 @@ impl Parse for TypeStateArgs {
 pub(crate) enum Transmute {
     Off,
     On(Alignment),
+}
+
+/// How a safe cast holds the container.
+#[derive(Clone, Copy)]
+pub(crate) enum Access {
+    Owned,
+    Shared,
+    Exclusive,
+}
+
+impl Access {
+    const ALL: [Access; 3] =
+        [Access::Owned, Access::Shared, Access::Exclusive];
+
+    /// `Owned -> ::typestate_groups::Owned`
+    fn marker(self) -> TokenStream {
+        match self {
+            Access::Owned => quote!(::typestate_groups::Owned),
+            Access::Shared => quote!(::typestate_groups::Shared),
+            Access::Exclusive => quote!(::typestate_groups::Exclusive),
+        }
+    }
 }
 
 /// The container's alignment.
