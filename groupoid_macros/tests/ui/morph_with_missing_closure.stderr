@@ -1,5 +1,0 @@
-error[E0063]: missing field `type3` in initializer of `TripleMorph<'_, _, _>`
-  --> tests/ui/morph_with_missing_closure.rs:43:42
-   |
-43 |     let _: Triple<StateB> = a.morph_with(TripleMorph {
-   |                                          ^^^^^^^^^^^ missing `type3`

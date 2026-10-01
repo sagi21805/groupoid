@@ -1,6 +1,6 @@
 //! Bit-reinterpreting transitions between a container's states.
 
-use crate::{State, WithState};
+use crate::{Restate, State, WithState};
 
 /// Bit-reinterprets a container as the same container in another
 /// [`State`].
@@ -14,7 +14,9 @@ pub trait Isomorphic: WithState + Sized {
     /// # Safety
     ///
     /// The bits of `self` must be a valid instance of the target.
-    unsafe fn transmute_state<To: State>(self) -> Self::Target
+    unsafe fn transmute_state<To: State>(
+        self,
+    ) -> <Self as Restate<To>>::Target
     where
         Self: TransmutableState<To>,
     {
@@ -23,7 +25,11 @@ pub trait Isomorphic: WithState + Sized {
         // SAFETY: `TransmutableState` guarantees `Self` and `Target` share
         // a layout, and `ManuallyDrop` keeps `self` from being dropped
         // twice.
-        unsafe { core::mem::transmute_copy::<Self, Self::Target>(&*value) }
+        unsafe {
+            core::mem::transmute_copy::<Self, <Self as Restate<To>>::Target>(
+                &*value,
+            )
+        }
     }
 
     /// Bit-reinterprets `&self` in state `To`.
@@ -31,14 +37,18 @@ pub trait Isomorphic: WithState + Sized {
     /// # Safety
     ///
     /// The bits of `self` must be a valid instance of the target.
-    unsafe fn transmute_state_ref<To: State>(&self) -> &Self::Target
+    unsafe fn transmute_state_ref<To: State>(
+        &self,
+    ) -> &<Self as Restate<To>>::Target
     where
         Self: TransmutableState<To>,
     {
         const { Self::LAYOUT_CHECK }
         // SAFETY: `TransmutableState` guarantees `Self` and `Target` share
         // a layout, and the borrow keeps `self`'s lifetime.
-        unsafe { &*(self as *const Self as *const Self::Target) }
+        unsafe {
+            &*(self as *const Self as *const <Self as Restate<To>>::Target)
+        }
     }
 
     /// Bit-reinterprets `&mut self` in state `To`.
@@ -48,14 +58,16 @@ pub trait Isomorphic: WithState + Sized {
     /// The bits of `self` must be a valid instance of the target.
     unsafe fn transmute_state_mut<To: State>(
         &mut self,
-    ) -> &mut Self::Target
+    ) -> &mut <Self as Restate<To>>::Target
     where
         Self: TransmutableState<To>,
     {
         const { Self::LAYOUT_CHECK }
         // SAFETY: `TransmutableState` guarantees `Self` and `Target` share
         // a layout, and the borrow keeps `self`'s lifetime and uniqueness.
-        unsafe { &mut *(self as *mut Self as *mut Self::Target) }
+        unsafe {
+            &mut *(self as *mut Self as *mut <Self as Restate<To>>::Target)
+        }
     }
 }
 
@@ -72,27 +84,23 @@ impl<T: WithState> Isomorphic for T {}
                `{Self}` to transmute it into state `{To}`",
     note = "both states' groups need the same `#[size(N)]`, and the \
             target must be the same struct",
-    note = "or convert by value with `morph_with` or `morph`, which need \
-            neither"
+    note = "or convert by value with `morph`, which needs neither"
 )]
 pub unsafe trait TransmutableState<To: State>:
-    WithState + Sized
+    Restate<To> + Sized
 {
-    /// `Self` with `To` as its state and every other generic unchanged.
-    type Target: WithState<State = To>;
-
-    /// Compile-time check that `Self` and [`Target`](Self::Target) share
-    /// a size and alignment. `#[typestate]` overrides it to also compare
-    /// every field's offset.
+    /// Compile-time check that `Self` and [`Target`](Restate::Target)
+    /// share a size and alignment. `#[typestate]` overrides it to also
+    /// compare every field's offset.
     const LAYOUT_CHECK: () = {
         assert!(
             core::mem::size_of::<Self>()
-                == core::mem::size_of::<Self::Target>(),
+                == core::mem::size_of::<<Self as Restate<To>>::Target>(),
             "`Self` and `Target` must have the same size"
         );
         assert!(
             core::mem::align_of::<Self>()
-                == core::mem::align_of::<Self::Target>(),
+                == core::mem::align_of::<<Self as Restate<To>>::Target>(),
             "`Self` and `Target` must have the same alignment"
         );
     };

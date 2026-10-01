@@ -1,5 +1,6 @@
-// `morph` needs the morpher to implement `MetaMorph` for these two states.
+// `morph` needs a `MorphFrom` impl from the source state to the target.
 #![allow(dead_code)]
+use groupoid::Morphic;
 use groupoid_macros::{group, state, template, typestate};
 
 #[template]
@@ -11,8 +12,6 @@ trait Meta {
 struct StateA;
 #[state]
 struct StateB;
-#[state]
-struct StateC;
 
 #[group(AGroup)]
 impl Meta for (StateA,) {
@@ -24,25 +23,11 @@ impl Meta for (StateB,) {
     type Value = u64;
 }
 
-#[group(CGroup)]
-impl Meta for (StateC,) {
-    type Value = u8;
-}
-
 #[typestate(state = S)]
 struct Wrap<S: Meta> {
     value: S::Value,
 }
 
-struct Widen;
-
-impl MetaMorph<StateA, StateB> for Widen {
-    fn value(&mut self, value: u32) -> u64 {
-        value.into()
-    }
-}
-
 fn main() {
-    let a = Wrap::<StateA> { value: 1 };
-    let _ = a.morph::<StateC, _>(Widen);
+    let _ = Wrap::<StateA> { value: 1 }.morph::<StateB>();
 }

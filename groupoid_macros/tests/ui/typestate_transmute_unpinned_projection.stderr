@@ -23,6 +23,14 @@ note: required for `Wrap<Pinned>` to implement `TransmutableState<Loose>`
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound introduced here
 28 | struct Wrap<S: Meta> {
    |        ^^^^^^^^^^^^^
+note: required by a bound in `transmute_state`
+  --> $WORKSPACE/groupoid/src/transmute.rs
+   |
+   |     unsafe fn transmute_state<To: State>(
+   |               --------------- required by a bound in this associated function
+...
+   |         Self: TransmutableState<To>,
+   |               ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Isomorphic::transmute_state`
    = note: this error originates in the attribute macro `group` which comes from the expansion of the attribute macro `typestate` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: add `#[size(N)]` to the associated type set to `u32` in `#[group(LooseGroup)]` to transmute it
@@ -50,4 +58,12 @@ note: required for `Wrap<Loose>` to implement `TransmutableState<Pinned>`
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound introduced here
 28 | struct Wrap<S: Meta> {
    |        ^^^^^^^^^^^^^
+note: required by a bound in `transmute_state`
+  --> $WORKSPACE/groupoid/src/transmute.rs
+   |
+   |     unsafe fn transmute_state<To: State>(
+   |               --------------- required by a bound in this associated function
+...
+   |         Self: TransmutableState<To>,
+   |               ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Isomorphic::transmute_state`
    = note: this error originates in the attribute macro `group` which comes from the expansion of the attribute macro `typestate` (in Nightly builds, run with -Z macro-backtrace for more info)

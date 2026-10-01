@@ -21,9 +21,6 @@ mod typestate;
 
 /// Declares a trait whose associated types group states.
 ///
-/// Generates `{Trait}Morph<Src, Dst>`, one method per associated type,
-/// to pass to `morph`.
-///
 /// ```
 /// use groupoid::{group, state, template};
 ///
@@ -48,18 +45,6 @@ mod typestate;
 /// impl Meta for (Big,) {
 ///     type Value = u64;
 ///     type Label = String;
-/// }
-///
-/// struct Widen;
-///
-/// impl MetaMorph<Small, Big> for Widen {
-///     fn value(&mut self, value: u32) -> u64 {
-///         value.into()
-///     }
-///
-///     fn label(&mut self, label: &'static str) -> String {
-///         label.to_uppercase()
-///     }
 /// }
 /// # fn main() {}
 /// ```
@@ -126,11 +111,11 @@ pub fn group_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Marks a generic struct as a typestate container. Options:
 /// `state = S`, `unsafe_transmute = true`, `align = N`.
 ///
-/// Generates `morph_with`, taking a closure per projection, and `morph`,
-/// taking a `{Template}Morph`.
+/// Implements `groupoid::Restate` for every target state, so the struct
+/// converts with `morph::<S2>()` once it implements `groupoid::MorphFrom`.
 ///
 /// ```
-/// use groupoid::{group, state, template, typestate};
+/// use groupoid::{MorphFrom, Morphic, group, state, template, typestate};
 ///
 /// #[template]
 /// trait Meta {
@@ -157,10 +142,20 @@ pub fn group_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     value: S::Value,
 /// }
 ///
+/// impl<S: Meta, S2: Meta> MorphFrom<Wrap<S>> for Wrap<S2>
+/// where
+///     S2::Value: From<S::Value>,
+/// {
+///     fn morph_from(src: Wrap<S>) -> Self {
+///         Wrap {
+///             value: src.value.into(),
+///         }
+///     }
+/// }
+///
 /// fn main() {
-///     let small = Wrap::<Small> { value: 7 };
-///     let big: Wrap<Big> = small.morph_with(u64::from);
-///     assert_eq!(big.value, 7);
+///     let big = Wrap::<Small> { value: 7 }.morph::<Big>();
+///     assert_eq!(big.value, 7u64);
 /// }
 /// ```
 #[proc_macro_attribute]

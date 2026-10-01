@@ -46,11 +46,6 @@ pub(crate) impl Type {
         self.zst_value().is_some()
     }
 
-    /// `Pair<S::Value>` -> `Pair<To::Value>`
-    fn with_ident_renamed(&self, from: &Ident, to: &Ident) -> TokenStream {
-        self.to_token_stream().rename_ident(from, to)
-    }
-
     /// Whether `ident` appears anywhere inside this type.
     fn mentions_ident(&self, ident: &Ident) -> bool {
         self.to_token_stream().mentions_ident(ident)
@@ -185,36 +180,9 @@ pub(crate) impl<T: Parse> Option<T> {
     }
 }
 
-/// Token scans behind the `Type` methods of the same names.
+/// Token scan behind the `Type` method of the same name.
 #[ext]
 impl TokenStream {
-    /// These tokens with every `from` not after `:` renamed to `to`.
-    fn rename_ident(self, from: &Ident, to: &Ident) -> TokenStream {
-        let mut after_colon = false;
-        self.into_iter()
-            .map(|tt| {
-                let renamed = match tt {
-                    TokenTree::Ident(ref ident)
-                        if ident == from && !after_colon =>
-                    {
-                        TokenTree::Ident(to.clone())
-                    }
-                    TokenTree::Group(group) => {
-                        let mut renamed = proc_macro2::Group::new(
-                            group.delimiter(),
-                            group.stream().rename_ident(from, to),
-                        );
-                        renamed.set_span(group.span());
-                        TokenTree::Group(renamed)
-                    }
-                    tt => tt,
-                };
-                after_colon = renamed.is_colon();
-                renamed
-            })
-            .collect()
-    }
-
     /// Whether `ident` appears anywhere in these tokens.
     fn mentions_ident(self, ident: &Ident) -> bool {
         self.into_iter().any(|tt| match tt {
@@ -222,13 +190,5 @@ impl TokenStream {
             TokenTree::Group(g) => g.stream().mentions_ident(ident),
             _ => false,
         })
-    }
-}
-
-#[ext]
-impl TokenTree {
-    /// Whether this token is one `:`.
-    fn is_colon(&self) -> bool {
-        matches!(self, TokenTree::Punct(p) if p.as_char() == ':')
     }
 }
