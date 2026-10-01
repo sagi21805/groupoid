@@ -6,11 +6,11 @@ pr_labels = ["release"]
 pr_name = "chore: release{% if package %} {{ package }}{% endif %}"
 
 [[package]]
-name = "groupoid"
+name = "typestate-groups"
 changelog_path = "./CHANGELOG.md"
-changelog_include = ["groupoid_macros"]
+changelog_include = ["typestate-groups-macros"]
 
 [[package]]
-name = "groupoid_macros"
+name = "typestate-groups-macros"
 changelog_update = false
 git_release_enable = false
