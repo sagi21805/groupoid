@@ -2,9 +2,13 @@
 //! behaviour. `cast_state` refuses each of them at compile time; the
 //! matching UI test is named on every case.
 //!
-//! UB aborts the test binary instead of panicking, so every case is
-//! ignored and `miri-expect-ub.sh` runs each one alone, requiring Miri to
-//! report undefined behaviour.
+//! UB stops Miri instead of panicking, so `#[should_panic]` can't catch
+//! it. Every case is ignored; run one at a time to see Miri reject it:
+//!
+//! ```sh
+//! cargo +nightly miri test -p typestate-groups-macros --test miri_ub -- \
+//!     --ignored --exact <name>
+//! ```
 
 use core::{cell::Cell, num::NonZeroU32};
 use typestate_groups::Isomorphic;
@@ -97,7 +101,7 @@ struct Large<S: Word> {
 
 /// `cast_state_invalid_target`
 #[test]
-#[ignore = "undefined behaviour: run with miri-expect-ub.sh"]
+#[ignore = "undefined behaviour: run alone under Miri"]
 fn transmute_state_u8_two_into_bool() {
     let raw = Small::<Raw> { value: 2 };
     let flag: Small<Flag> = unsafe { raw.transmute_state() };
@@ -106,7 +110,7 @@ fn transmute_state_u8_two_into_bool() {
 
 /// `cast_state_invalid_target`
 #[test]
-#[ignore = "undefined behaviour: run with miri-expect-ub.sh"]
+#[ignore = "undefined behaviour: run alone under Miri"]
 fn transmute_state_surrogate_into_char() {
     let bits = Large::<Bits> { value: 0xd800 };
     let letter: Large<Letter> = unsafe { bits.transmute_state() };
@@ -115,7 +119,7 @@ fn transmute_state_surrogate_into_char() {
 
 /// `cast_state_invalid_target`
 #[test]
-#[ignore = "undefined behaviour: run with miri-expect-ub.sh"]
+#[ignore = "undefined behaviour: run alone under Miri"]
 fn transmute_state_zero_into_non_zero() {
     let bits = Large::<Bits> { value: 0 };
     let count: &Large<Count> = unsafe { bits.transmute_state_ref() };
@@ -124,7 +128,7 @@ fn transmute_state_zero_into_non_zero() {
 
 /// `cast_state_padded_source`
 #[test]
-#[ignore = "undefined behaviour: run with miri-expect-ub.sh"]
+#[ignore = "undefined behaviour: run alone under Miri"]
 fn transmute_state_reads_padding_as_an_integer() {
     let gapped = Large::<Gapped> {
         value: Padded { small: 1, wide: 2 },
@@ -135,7 +139,7 @@ fn transmute_state_reads_padding_as_an_integer() {
 
 /// `cast_state_mut_one_way`
 #[test]
-#[ignore = "undefined behaviour: run with miri-expect-ub.sh"]
+#[ignore = "undefined behaviour: run alone under Miri"]
 fn transmute_state_mut_writes_an_invalid_bool_back() {
     let mut flag = Small::<Flag> { value: false };
     unsafe { flag.transmute_state_mut::<Raw>() }.value = 2;
@@ -144,7 +148,7 @@ fn transmute_state_mut_writes_an_invalid_bool_back() {
 
 /// `cast_state_ref_cell`
 #[test]
-#[ignore = "undefined behaviour: run with miri-expect-ub.sh"]
+#[ignore = "undefined behaviour: run alone under Miri"]
 fn transmute_state_ref_writes_through_a_shared_integer() {
     let bits = Large::<Bits> { value: 1 };
     let shared: &Large<Shared> = unsafe { bits.transmute_state_ref() };

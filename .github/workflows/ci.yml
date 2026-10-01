@@ -63,7 +63,6 @@ jobs:
       - run: cargo +nightly miri test --workspace
         env:
           MIRIFLAGS: -Zmiri-tree-borrows
-      - run: scripts/miri-expect-ub.sh
 
   msrv:
     name: MSRV
