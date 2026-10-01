@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2](https://github.com/sagi21805/typestate-groups/compare/typestate-groups-v0.2.1...typestate-groups-v0.2.2) - 2026-10-01
+
+### Other
+
+- show the miri ub cases fail to compile with cast_state and split CastRefFrom from CastFrom
+- document cast_state in the readme
+- add CastRefFrom and point cast errors at morph
+- add safe cast_state family checked with zerocopy
+- move syn visitors out of function bodies
+- copy where-clause bounds on the state onto the target state
+- merge ui tests per macro and runtime tests per feature
+- some fixes on claude code.
+- run expected ub cases by hand instead of with a script
+- add miri cast tests and expected ub checks for unchecked transmutes
+- add char and NonZeroU32 cast tests for miri
+- run miri in ci and skip ui tests under miri
+- add miri test for transmute_state between u8 and bool states
+- add cast_state runtime and ui tests
+
 ## [0.2.1](https://github.com/sagi21805/typestate-groups/compare/typestate-groups-v0.2.0...typestate-groups-v0.2.1) - 2026-10-01
 
 ### Other
