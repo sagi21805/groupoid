@@ -815,14 +815,15 @@ struct Outlives<'a> {
 
 impl<'ast> Visit<'ast> for Outlives<'_> {
     fn visit_type_reference(&mut self, reference: &'ast TypeReference) {
-        if let TypeReference {
-            lifetime: Some(lifetime),
-            elem,
-            ..
-        } = reference
-            && elem.mentions_ident(self.state)
-        {
-            self.found.push(parse_quote!(#elem: #lifetime));
+        match reference {
+            TypeReference {
+                lifetime: Some(lifetime),
+                elem,
+                ..
+            } if elem.mentions_ident(self.state) => {
+                self.found.push(parse_quote!(#elem: #lifetime));
+            }
+            _ => {}
         }
         visit::visit_type_reference(self, reference);
     }
