@@ -4,9 +4,10 @@ use quote::quote;
 use syn::{
     Attribute, ConstParam, Field, GenericParam, Generics, Ident,
     ItemStruct, LifetimeParam, LitBool, LitInt, Path, PathArguments,
-    Token, Type, TypeParam, TypePath, WherePredicate,
+    Token, Type, TypeParam, TypePath, TypeReference, WherePredicate,
     parse::{Parse, ParseStream},
-    parse_quote,
+    parse_quote, parse_quote_spanned,
+    spanned::Spanned as _,
     visit::{self, Visit},
 };
 
@@ -26,9 +27,9 @@ pub(crate) struct TypeState {
     target_ty: TokenStream,
     /// Whether `TransmutableState` and `CastableState` are derived too.
     transmute: Transmute,
-    /// The distinct associated types the fields project through the
-    /// state (`Value` in `S::Value`), in order of first appearance.
-    projections: Vec<Ident>,
+    /// How each field changes between states, in field order. Empty
+    /// without `unsafe_transmute = true`.
+    shapes: Vec<FieldShape>,
 }
 
 impl TypeState {
@@ -49,21 +50,33 @@ impl TypeState {
         let state = state_param.ident.clone();
         let target_ty =
             item_struct.with_state(&state, &target_state.ident);
-        let projections = item_struct.projections(&state)?;
+        item_struct.require_no_marker(&state)?;
 
-        if let Transmute::On(align) = &args.transmute {
-            item_struct.require_transmutable_layout(&state)?;
-            if projections.is_empty() {
-                return Err(syn::Error::new_spanned(
-                    &item_struct.ident,
-                    format!(
-                        "add a field of type `{state}::Assoc`, or remove \
-                         `unsafe_transmute = true`",
-                    ),
-                ));
+        let shapes = match &args.transmute {
+            Transmute::On(align) => {
+                let shapes: Vec<FieldShape> = item_struct
+                    .fields
+                    .iter()
+                    .map(|field| field.shape(&state))
+                    .collect();
+                if shapes
+                    .iter()
+                    .all(|shape| matches!(shape, FieldShape::Fixed))
+                {
+                    return Err(syn::Error::new_spanned(
+                        &item_struct.ident,
+                        format!(
+                            "add a field of type `{state}::Assoc` or a \
+                             pointer to one, or remove `unsafe_transmute \
+                             = true`",
+                        ),
+                    ));
+                }
+                item_struct.ensure_repr(align)?;
+                shapes
             }
-            item_struct.ensure_repr(align)?;
-        }
+            Transmute::Off => Vec::new(),
+        };
 
         Ok(TypeState {
             item_struct,
@@ -71,7 +84,7 @@ impl TypeState {
             target_state,
             target_ty,
             transmute: args.transmute,
-            projections,
+            shapes,
         })
     }
 
@@ -138,15 +151,23 @@ impl TypeState {
     }
 
     /// The struct's generics plus the target state, which gets a copy of
-    /// every `where` predicate on the state.
+    /// every `where` predicate on the state and of every outlives bound
+    /// a reference field implies.
     ///
-    /// `where S: Debug` -> `where S: Debug, S2: Debug`
+    /// `where S: Debug` -> `where S: Debug, S2: Debug`,
+    /// `field: &'a S::Value` -> `where S2::Value: 'a`
     fn target_generics(&self) -> Generics {
         let mut generics = self.item_struct.generics.clone();
+        let implied = self
+            .item_struct
+            .fields
+            .iter()
+            .flat_map(|field| field.ty.outlives(&self.state));
         let target_predicates: Vec<WherePredicate> = generics
             .where_clause
             .iter()
-            .flat_map(|clause| &clause.predicates)
+            .flat_map(|clause| clause.predicates.iter().cloned())
+            .chain(implied)
             .filter_map(|predicate| {
                 predicate.renamed(&self.state, &self.target_state.ident)
             })
@@ -171,19 +192,29 @@ impl TypeState {
             self.item_struct.generics.split_for_impl();
 
         let mut generics = self.target_generics();
-        generics.make_where_clause().predicates.extend(
-            self.projections.iter().map(|projection| {
+        let predicates = &mut generics.make_where_clause().predicates;
+        predicates.extend(
+            self.projections().map(|projection| {
                 self.layout_predicate(projection, align)
             }),
         );
+        predicates.extend(self.indirect_fields().map(
+            |src| -> WherePredicate {
+                let dst = self.in_target_state(src);
+                parse_quote_spanned! {src.span()=>
+                    #dst: ::typestate_groups::Repointed<#src>
+                }
+            },
+        ));
         let (impl_generics, _, where_clause) = generics.split_for_impl();
         let layout_check = self.layout_check();
 
         quote! {
             // SAFETY: the where-clause gives every projection one size
-            // in both states, and the `repr` fixes the field order.
+            // in both states and every indirect field one layout, and
+            // the `repr` fixes the field order.
             // `LAYOUT_CHECK` rejects any alignment or field offset that
-            // `align = N` lets differ.
+            // `align = N` lets differ, and a pointer that turns fat.
             unsafe impl #impl_generics ::typestate_groups::TransmutableState<#target_state>
                 for #struct_ident #ty_generics #where_clause
             {
@@ -193,66 +224,136 @@ impl TypeState {
     }
 
     /// `CastableState<S2, A>` for `Struct<S>`, for every access `A` and
-    /// every `S2` whose projections stay valid under it.
-    ///
-    /// `Owned` needs `S2::P: CastFrom<S::P>` per projection, `Shared` adds
-    /// `S2::P: CastRefFrom<S::P>` and `Exclusive` adds
-    /// `S::P: CastFrom<S2::P>`.
+    /// every `S2` whose projections and pointees stay valid under it.
     fn castable_state_impls(&self) -> TokenStream {
         let struct_ident = &self.item_struct.ident;
-        let state = &self.state;
         let target_state = &self.target_state.ident;
         let (_, ty_generics, _) =
             self.item_struct.generics.split_for_impl();
-        let src: Vec<_> = self
-            .projections
+        let accesses = [
+            quote!(::typestate_groups::Owned),
+            quote!(::typestate_groups::Shared),
+            quote!(::typestate_groups::Exclusive),
+        ];
+
+        accesses
             .iter()
-            .map(|projection| quote!(#state::#projection))
-            .collect();
-        let dst: Vec<_> = self
-            .projections
-            .iter()
-            .map(|projection| quote!(#target_state::#projection))
-            .collect();
+            .map(|access| {
+                let mut generics = self.target_generics();
+                let predicates = &mut generics.make_where_clause().predicates;
+                predicates.push(parse_quote! {
+                    #struct_ident #ty_generics:
+                        ::typestate_groups::TransmutableState<#target_state>
+                });
+                predicates.extend(
+                    self.shapes
+                        .iter()
+                        .filter_map(|shape| self.cast_predicate(shape, access)),
+                );
+                let (impl_generics, _, where_clause) =
+                    generics.split_for_impl();
+                let pointee_check = self.pointee_check(access);
 
-        let mut generics = self.target_generics();
-        let predicates = &mut generics.make_where_clause().predicates;
-        predicates.push(parse_quote! {
-            #struct_ident #ty_generics:
-                ::typestate_groups::TransmutableState<#target_state>
-        });
-        predicates.extend(src.iter().zip(&dst).map(
-            |(src, dst)| -> WherePredicate {
-                parse_quote!(#dst: ::typestate_groups::CastFrom<#src>)
-            },
-        ));
-        let (impl_generics, _, where_clause) = generics.split_for_impl();
+                quote! {
+                    // SAFETY: the where-clause proves every projection and
+                    // pointee valid in the target state under this access,
+                    // `POINTEE_CHECK` keeps every pointee's size and
+                    // alignment, and every other field keeps its type.
+                    unsafe impl #impl_generics ::typestate_groups::CastableState<#target_state, #access>
+                        for #struct_ident #ty_generics #where_clause
+                    {
+                        #pointee_check
+                    }
+                }
+            })
+            .collect()
+    }
 
-        quote! {
-            // SAFETY: the where-clause proves every projection valid in
-            // the target state when owned, and every other field keeps
-            // its type.
-            unsafe impl #impl_generics ::typestate_groups::CastableState<#target_state, ::typestate_groups::Owned>
-                for #struct_ident #ty_generics #where_clause
-            {
-            }
+    /// The bound that keeps a field valid in the target state when the
+    /// container is cast through `access`.
+    ///
+    /// `S::P -> S2::P: CastValid<S::P, A>`,
+    /// `F<S> -> F<S2>: CastIndirect<F<S>, A>`
+    fn cast_predicate(
+        &self,
+        shape: &FieldShape,
+        access: &TokenStream,
+    ) -> Option<WherePredicate> {
+        let state = &self.state;
+        let target_state = &self.target_state.ident;
 
-            // SAFETY: as for `Owned`, and every projection can also be
-            // read in place as the target type.
-            unsafe impl #impl_generics ::typestate_groups::CastableState<#target_state, ::typestate_groups::Shared>
-                for #struct_ident #ty_generics #where_clause,
-                    #(#dst: ::typestate_groups::CastRefFrom<#src>,)*
-            {
-            }
-
-            // SAFETY: as for `Owned`, and every value written through
-            // the target type is valid in the source state.
-            unsafe impl #impl_generics ::typestate_groups::CastableState<#target_state, ::typestate_groups::Exclusive>
-                for #struct_ident #ty_generics #where_clause,
-                    #(#src: ::typestate_groups::CastFrom<#dst>,)*
-            {
+        match shape {
+            FieldShape::Fixed => None,
+            FieldShape::Projection(assoc) => Some(parse_quote! {
+                #target_state::#assoc:
+                    ::typestate_groups::CastValid<#state::#assoc, #access>
+            }),
+            FieldShape::Indirect(src) => {
+                let dst = self.in_target_state(src);
+                Some(parse_quote_spanned! {src.span()=>
+                    #dst: ::typestate_groups::CastIndirect<#src, #access>
+                })
             }
         }
+    }
+
+    /// `CastableState::POINTEE_CHECK` for `access`, asserting each
+    /// indirect field's `CastIndirect::SAME_POINTEE_LAYOUT`.
+    fn pointee_check(&self, access: &TokenStream) -> TokenStream {
+        let asserts = self
+            .item_struct
+            .fields
+            .members()
+            .zip(&self.shapes)
+            .filter_map(|(member, shape)| match shape {
+                FieldShape::Indirect(src) => {
+                    let dst = self.in_target_state(src);
+                    let msg = format!(
+                        "make the pointee of `{}` keep its size and \
+                         alignment in the target state, or convert with \
+                         `morph`",
+                        quote!(#member),
+                    );
+                    Some(quote! {
+                        ::core::assert!(
+                            <#dst as ::typestate_groups::CastIndirect<#src, #access>>::SAME_POINTEE_LAYOUT,
+                            #msg
+                        );
+                    })
+                }
+                FieldShape::Fixed | FieldShape::Projection(_) => None,
+            });
+
+        quote! {
+            const POINTEE_CHECK: () = {
+                #(#asserts)*
+            };
+        }
+    }
+
+    /// The associated types the fields hold by value (`Value` in a field
+    /// of type `S::Value`).
+    fn projections(&self) -> impl Iterator<Item = &Ident> {
+        self.shapes.iter().filter_map(|shape| match shape {
+            FieldShape::Projection(assoc) => Some(assoc),
+            FieldShape::Fixed | FieldShape::Indirect(_) => None,
+        })
+    }
+
+    /// The types of the fields that hold the state's types behind a
+    /// pointer.
+    fn indirect_fields(&self) -> impl Iterator<Item = &Type> {
+        self.shapes.iter().filter_map(|shape| match shape {
+            FieldShape::Indirect(ty) => Some(ty),
+            FieldShape::Fixed | FieldShape::Projection(_) => None,
+        })
+    }
+
+    /// `ty` in the target state.
+    ///
+    /// `NonNull<S::Value>` -> `NonNull<S2::Value>`
+    fn in_target_state(&self, ty: &Type) -> Type {
+        ty.renamed(&self.state, &self.target_state.ident)
     }
 
     /// `TransmutableState::LAYOUT_CHECK`, extended with one offset
@@ -390,6 +491,21 @@ pub(crate) enum Alignment {
     Forced(LitInt),
 }
 
+/// How a field changes between states, for transmuting.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "one per field, built once per macro call"
+)]
+pub(crate) enum FieldShape {
+    /// The same type in every state: no `S`, or a ZST such as
+    /// `PhantomData<S::Value>`.
+    Fixed,
+    /// `S::Assoc`, laid out by its group's `#[size(N)]`.
+    Projection(Ident),
+    /// Any other type, which must implement `typestate_groups::Indirect`.
+    Indirect(Type),
+}
+
 #[ext]
 impl ItemStruct {
     /// The type parameter named `state`, or the only one.
@@ -429,55 +545,25 @@ impl ItemStruct {
             })
     }
 
-    /// The distinct associated types the fields project through the
-    /// state (`Value` in `S::Value`), at any depth, in order of first
-    /// appearance.
-    fn projections(&self, state: &Ident) -> syn::Result<Vec<Ident>> {
-        let mut projections: Vec<Ident> = Vec::new();
-
-        for projection in self
+    /// Rejects a field that mentions `S::Marker` at any depth.
+    fn require_no_marker(&self, state: &Ident) -> syn::Result<()> {
+        let marker = self
             .fields
             .iter()
             .flat_map(|field| field.ty.projections(state))
-        {
-            if projection == "Marker" {
-                return Err(syn::Error::new(
-                    projection.span(),
-                    format!(
-                        "replace `{state}::Marker` with \
-                         `PhantomData<{state}>`: a group marker has no \
-                         value to convert"
-                    ),
-                ));
-            }
-            if !projections.contains(&projection) {
-                projections.push(projection);
-            }
+            .find(|projection| projection == "Marker");
+
+        match marker {
+            Some(marker) => Err(syn::Error::new(
+                marker.span(),
+                format!(
+                    "replace `{state}::Marker` with \
+                     `PhantomData<{state}>`: a group marker has no value \
+                     to convert"
+                ),
+            )),
+            None => Ok(()),
         }
-
-        Ok(projections)
-    }
-
-    /// Checks that every field keeps its layout across states.
-    fn require_transmutable_layout(
-        &self,
-        state: &Ident,
-    ) -> syn::Result<()> {
-        for field in self.fields.iter() {
-            if !field.is_transmutable(state) {
-                return Err(syn::Error::new_spanned(
-                    &field.ty,
-                    format!(
-                        "make this field `{state}::Assoc`, a ZST or a \
-                         type without `{state}`, or remove \
-                         `unsafe_transmute = true` and convert with \
-                         `morph`"
-                    ),
-                ));
-            }
-        }
-
-        Ok(())
     }
 
     /// Adds `#[repr(C)]` if missing, and `#[repr(align(N))]` when forced.
@@ -535,11 +621,19 @@ impl ItemStruct {
 
 #[ext]
 impl Field {
-    /// Whether this field is `S::Value`, a ZST, or state-independent.
-    fn is_transmutable(&self, state: &Ident) -> bool {
-        self.ty.state_projection(state).is_some()
-            || self.ty.is_zst()
-            || !self.ty.mentions_ident(state)
+    /// How this field changes between states.
+    ///
+    /// `S::Value -> Projection(Value)`,
+    /// `Option<NonNull<S::Value>> -> Indirect(..)`
+    fn shape(&self, state: &Ident) -> FieldShape {
+        let ty = &self.ty;
+        if !ty.mentions_ident(state) || ty.is_zst() {
+            FieldShape::Fixed
+        } else if let Some(assoc) = ty.state_projection(state) {
+            FieldShape::Projection(assoc.clone())
+        } else {
+            FieldShape::Indirect(ty.clone())
+        }
     }
 }
 
@@ -553,6 +647,19 @@ impl Type {
         };
         projections.visit_type(self);
         projections.found
+    }
+
+    /// `T: 'a` for every `&'a T` inside this type whose `T` mentions
+    /// `state`.
+    ///
+    /// `Option<&'a S::Value>` -> `[S::Value: 'a]`
+    fn outlives(&self, state: &Ident) -> Vec<WherePredicate> {
+        let mut outlives = Outlives {
+            state,
+            found: Vec::new(),
+        };
+        outlives.visit_type(self);
+        outlives.found
     }
 
     /// `Assoc` when this type is `S::Assoc, or (S::Assoc)`.
@@ -592,5 +699,28 @@ impl<'ast> Visit<'ast> for Projections<'_> {
             Some(assoc) => self.found.push(assoc.clone()),
             None => visit::visit_type(self, ty),
         }
+    }
+}
+
+/// Collects `T: 'a` for every `&'a T` it visits whose `T` mentions the
+/// state.
+struct Outlives<'a> {
+    state: &'a Ident,
+    found: Vec<WherePredicate>,
+}
+
+impl<'ast> Visit<'ast> for Outlives<'_> {
+    fn visit_type_reference(&mut self, reference: &'ast TypeReference) {
+        match reference {
+            TypeReference {
+                lifetime: Some(lifetime),
+                elem,
+                ..
+            } if elem.mentions_ident(self.state) => {
+                self.found.push(parse_quote!(#elem: #lifetime));
+            }
+            _ => {}
+        }
+        visit::visit_type_reference(self, reference);
     }
 }

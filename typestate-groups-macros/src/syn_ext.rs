@@ -51,6 +51,20 @@ pub(crate) impl Type {
     fn mentions_ident(&self, ident: &Ident) -> bool {
         self.to_token_stream().mentions_ident(ident)
     }
+
+    /// This type with every `from` renamed to `to`.
+    ///
+    /// `Node<S>` -> `Node<T>`
+    fn renamed(&self, from: &Ident, to: &Ident) -> Type {
+        let mut ty = self.clone();
+        Rename {
+            from,
+            to,
+            found: false,
+        }
+        .visit_type_mut(&mut ty);
+        ty
+    }
 }
 
 #[ext]
