@@ -4,9 +4,8 @@ use extend::ext;
 use proc_macro2::{TokenStream, TokenTree};
 use quote::{ToTokens, quote};
 use syn::{
-    AssocType, Attribute, GenericArgument, Generics, Ident, Path,
-    PathArguments, PredicateType, Token, Type, TypeParam, TypeParamBound,
-    TypePath, WherePredicate,
+    AssocType, Attribute, Generics, Ident, Path, PredicateType, Token,
+    Type, TypeParam, TypeParamBound, TypePath, WherePredicate,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     visit::Visit,
@@ -88,22 +87,6 @@ pub(crate) impl Path {
                 }
                 _ => false,
             }
-    }
-
-    /// The last segment's type argument when it is the only argument.
-    ///
-    /// `Box<T>` -> `T`
-    fn single_type_arg(&self) -> Option<&Type> {
-        let PathArguments::AngleBracketed(args) =
-            &self.segments.last()?.arguments
-        else {
-            return None;
-        };
-
-        match args.args.iter().collect::<Vec<_>>().as_slice() {
-            [GenericArgument::Type(ty)] => Some(ty),
-            _ => None,
-        }
     }
 
     /// `a::Meta` -> `a::MetaGroupMarker`

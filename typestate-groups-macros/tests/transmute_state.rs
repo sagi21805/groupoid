@@ -7,7 +7,7 @@ use core::{
     num::NonZeroU32,
     ptr::NonNull,
 };
-use typestate_groups::Isomorphic;
+use typestate_groups::{Indirect, Isomorphic, Repointed, UnknownPointee};
 use typestate_groups_macros::{group, state, state_types, typestate};
 
 #[state_types]
@@ -230,8 +230,24 @@ impl Payload for (Number,) {
     type Item = u64;
 }
 
+/// A pointer of the user's own.
+#[repr(transparent)]
+struct Handle<T>(NonNull<T>);
+
+// SAFETY: `Handle` holds `T` only behind its `NonNull`, which anyone may
+// alias.
+unsafe impl<T> Indirect for Handle<T> {
+    type Pointee = T;
+    type Aliasing = UnknownPointee;
+}
+
+// SAFETY: `Handle<U>` is a `NonNull<U>`, laid out like `NonNull<T>`.
+unsafe impl<T, U> Repointed<Handle<T>> for Handle<U> {}
+
+type Ptr<T> = NonNull<T>;
+
 /// A pointer keeps its layout whatever it points at, so its pointee needs
-/// no `#[size(N)]`.
+/// no `#[size(N)]`. Aliases and user pointers count too.
 #[typestate(unsafe_transmute = true)]
 struct Pointers<'a, S: Payload> {
     raw: *const S::Item,
@@ -239,6 +255,8 @@ struct Pointers<'a, S: Payload> {
     nullable: Option<NonNull<S::Item>>,
     shared: Option<&'a S::Item>,
     boxed: Option<Box<S::Item>>,
+    aliased: Ptr<S::Item>,
+    handle: Handle<S::Item>,
     _item: PhantomData<S::Item>,
 }
 
@@ -252,6 +270,8 @@ fn transmute_state_keeps_pointer_addresses() {
         nullable: None,
         shared: None,
         boxed: None,
+        aliased: ptr,
+        handle: Handle(ptr),
         _item: PhantomData,
     };
     // SAFETY: the pointers are never read as `u64`, and the `Option`s are
@@ -261,4 +281,6 @@ fn transmute_state_keeps_pointer_addresses() {
     assert_eq!(number.raw.cast(), ptr.as_ptr());
     assert_eq!(number.non_null.cast(), ptr);
     assert!(number.nullable.is_none());
+    assert_eq!(number.aliased.cast(), ptr);
+    assert_eq!(number.handle.0.cast(), ptr);
 }

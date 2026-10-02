@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 
 use core::{cell::Cell, num::NonZeroU32, ptr::NonNull};
+use std::sync::Arc;
 use typestate_groups::{CastableState, Isomorphic, Owned};
 use typestate_groups_macros::{group, state, state_types, typestate};
 
@@ -125,6 +126,11 @@ struct Borrowed<'a, S: Word> {
 }
 
 #[typestate(unsafe_transmute = true)]
+struct Counted<S: Word> {
+    value: Arc<S::Value>,
+}
+
+#[typestate(unsafe_transmute = true)]
 struct Lent<'a, S: Byte> {
     value: &'a mut S::Value,
 }
@@ -162,6 +168,10 @@ fn transmute_state_non_null_surrogate_into_char(bits: Pointer<Bits>) {
 }
 
 fn transmute_state_shared_pointee_into_cell(bits: Borrowed<Bits>) {
+    let _ = bits.cast_state::<Shared>();
+}
+
+fn arc_pointee_into_cell(bits: Counted<Bits>) {
     let _ = bits.cast_state::<Shared>();
 }
 

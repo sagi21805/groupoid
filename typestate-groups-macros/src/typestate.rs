@@ -6,13 +6,14 @@ use syn::{
     ItemStruct, LifetimeParam, LitBool, LitInt, Path, PathArguments,
     Token, Type, TypeParam, TypePath, TypeReference, WherePredicate,
     parse::{Parse, ParseStream},
-    parse_quote,
+    parse_quote, parse_quote_spanned,
+    spanned::Spanned as _,
     visit::{self, Visit},
 };
 
 use crate::syn_ext::{
-    AttributeExt as _, GenericsExt as _, OptionExt as _, PathExt as _,
-    TypeExt as _, WherePredicateExt as _,
+    AttributeExt as _, GenericsExt as _, OptionExt as _, TypeExt as _,
+    WherePredicateExt as _,
 };
 
 pub(crate) struct TypeState {
@@ -53,11 +54,11 @@ impl TypeState {
 
         let shapes = match &args.transmute {
             Transmute::On(align) => {
-                let shapes = item_struct
+                let shapes: Vec<FieldShape> = item_struct
                     .fields
                     .iter()
                     .map(|field| field.shape(&state))
-                    .collect::<syn::Result<Vec<_>>>()?;
+                    .collect();
                 if shapes
                     .iter()
                     .all(|shape| matches!(shape, FieldShape::Fixed))
@@ -191,18 +192,27 @@ impl TypeState {
             self.item_struct.generics.split_for_impl();
 
         let mut generics = self.target_generics();
-        generics.make_where_clause().predicates.extend(
+        let predicates = &mut generics.make_where_clause().predicates;
+        predicates.extend(
             self.projections().map(|projection| {
                 self.layout_predicate(projection, align)
             }),
         );
+        predicates.extend(self.indirect_fields().map(
+            |src| -> WherePredicate {
+                let dst = self.in_target_state(src);
+                parse_quote_spanned! {src.span()=>
+                    #dst: ::typestate_groups::Repointed<#src>
+                }
+            },
+        ));
         let (impl_generics, _, where_clause) = generics.split_for_impl();
         let layout_check = self.layout_check();
 
         quote! {
             // SAFETY: the where-clause gives every projection one size
-            // in both states, a pointer's layout ignores its sized
-            // pointee, and the `repr` fixes the field order.
+            // in both states and every indirect field one layout, and
+            // the `repr` fixes the field order.
             // `LAYOUT_CHECK` rejects any alignment or field offset that
             // `align = N` lets differ, and a pointer that turns fat.
             unsafe impl #impl_generics ::typestate_groups::TransmutableState<#target_state>
@@ -220,10 +230,14 @@ impl TypeState {
         let target_state = &self.target_state.ident;
         let (_, ty_generics, _) =
             self.item_struct.generics.split_for_impl();
-        let pointee_check = self.pointee_check();
+        let accesses = [
+            quote!(::typestate_groups::Owned),
+            quote!(::typestate_groups::Shared),
+            quote!(::typestate_groups::Exclusive),
+        ];
 
-        Access::ALL
-            .into_iter()
+        accesses
+            .iter()
             .map(|access| {
                 let mut generics = self.target_generics();
                 let predicates = &mut generics.make_where_clause().predicates;
@@ -234,11 +248,11 @@ impl TypeState {
                 predicates.extend(
                     self.shapes
                         .iter()
-                        .flat_map(|shape| self.cast_predicates(shape, access)),
+                        .filter_map(|shape| self.cast_predicate(shape, access)),
                 );
                 let (impl_generics, _, where_clause) =
                     generics.split_for_impl();
-                let access = access.path();
+                let pointee_check = self.pointee_check(access);
 
                 quote! {
                     // SAFETY: the where-clause proves every projection and
@@ -255,48 +269,45 @@ impl TypeState {
             .collect()
     }
 
-    /// The bounds that keep a field valid in the target state when the
+    /// The bound that keeps a field valid in the target state when the
     /// container is cast through `access`.
     ///
-    /// `S::P` follows `access`. A pointee follows its pointer's
-    /// [`PointerKind::accesses`].
-    fn cast_predicates(
+    /// `S::P -> S2::P: CastValid<S::P, A>`,
+    /// `F<S> -> F<S2>: CastIndirect<F<S>, A>`
+    fn cast_predicate(
         &self,
         shape: &FieldShape,
-        access: Access,
-    ) -> Vec<WherePredicate> {
+        access: &TokenStream,
+    ) -> Option<WherePredicate> {
         let state = &self.state;
         let target_state = &self.target_state.ident;
 
         match shape {
-            FieldShape::Fixed => Vec::new(),
-            FieldShape::Projection(assoc) => access.predicates(
-                &parse_quote!(#state::#assoc),
-                &parse_quote!(#target_state::#assoc),
-            ),
-            FieldShape::Pointer { kind, pointee } => {
-                let target = pointee.renamed(state, target_state);
-                kind.accesses(access)
-                    .into_iter()
-                    .flat_map(|access| access.predicates(pointee, &target))
-                    .collect()
+            FieldShape::Fixed => None,
+            FieldShape::Projection(assoc) => Some(parse_quote! {
+                #target_state::#assoc:
+                    ::typestate_groups::CastValid<#state::#assoc, #access>
+            }),
+            FieldShape::Indirect(src) => {
+                let dst = self.in_target_state(src);
+                Some(parse_quote_spanned! {src.span()=>
+                    #dst: ::typestate_groups::CastIndirect<#src, #access>
+                })
             }
         }
     }
 
-    /// `CastableState::POINTEE_CHECK`, with one size and alignment
-    /// assertion per pointer field.
-    fn pointee_check(&self) -> TokenStream {
-        let state = &self.state;
-        let target_state = &self.target_state.ident;
+    /// `CastableState::POINTEE_CHECK` for `access`, asserting each
+    /// indirect field's `CastIndirect::SAME_POINTEE_LAYOUT`.
+    fn pointee_check(&self, access: &TokenStream) -> TokenStream {
         let asserts = self
             .item_struct
             .fields
             .members()
             .zip(&self.shapes)
             .filter_map(|(member, shape)| match shape {
-                FieldShape::Pointer { pointee, .. } => {
-                    let target = pointee.renamed(state, target_state);
+                FieldShape::Indirect(src) => {
+                    let dst = self.in_target_state(src);
                     let msg = format!(
                         "make the pointee of `{}` keep its size and \
                          alignment in the target state, or convert with \
@@ -305,10 +316,7 @@ impl TypeState {
                     );
                     Some(quote! {
                         ::core::assert!(
-                            ::core::mem::size_of::<#pointee>()
-                                == ::core::mem::size_of::<#target>()
-                                && ::core::mem::align_of::<#pointee>()
-                                    == ::core::mem::align_of::<#target>(),
+                            <#dst as ::typestate_groups::CastIndirect<#src, #access>>::SAME_POINTEE_LAYOUT,
                             #msg
                         );
                     })
@@ -328,8 +336,24 @@ impl TypeState {
     fn projections(&self) -> impl Iterator<Item = &Ident> {
         self.shapes.iter().filter_map(|shape| match shape {
             FieldShape::Projection(assoc) => Some(assoc),
-            FieldShape::Fixed | FieldShape::Pointer { .. } => None,
+            FieldShape::Fixed | FieldShape::Indirect(_) => None,
         })
+    }
+
+    /// The types of the fields that hold the state's types behind a
+    /// pointer.
+    fn indirect_fields(&self) -> impl Iterator<Item = &Type> {
+        self.shapes.iter().filter_map(|shape| match shape {
+            FieldShape::Indirect(ty) => Some(ty),
+            FieldShape::Fixed | FieldShape::Projection(_) => None,
+        })
+    }
+
+    /// `ty` in the target state.
+    ///
+    /// `NonNull<S::Value>` -> `NonNull<S2::Value>`
+    fn in_target_state(&self, ty: &Type) -> Type {
+        ty.renamed(&self.state, &self.target_state.ident)
     }
 
     /// `TransmutableState::LAYOUT_CHECK`, extended with one offset
@@ -478,85 +502,8 @@ pub(crate) enum FieldShape {
     Fixed,
     /// `S::Assoc`, laid out by its group's `#[size(N)]`.
     Projection(Ident),
-    /// A pointer whose layout doesn't depend on its sized pointee.
-    Pointer { kind: PointerKind, pointee: Type },
-}
-
-/// A pointer field's kind, which decides who else can see its pointee.
-#[derive(Clone, Copy)]
-pub(crate) enum PointerKind {
-    /// `*const T`, `*mut T` or `NonNull<T>`.
-    Raw,
-    /// `&T`
-    Shared,
-    /// `&mut T`
-    Unique,
-    /// `Box<T>`
-    Boxed,
-}
-
-impl PointerKind {
-    /// The accesses whose bounds the pointee needs when the container is
-    /// cast through `container`.
-    ///
-    /// A `&T` pointee may be aliased, so it needs `Shared` even by value.
-    /// A `&mut T` pointee goes back to its lender, so it needs
-    /// `Exclusive`. A raw pointee may be either.
-    fn accesses(self, container: Access) -> Vec<Access> {
-        match self {
-            PointerKind::Boxed => vec![container],
-            PointerKind::Shared => vec![Access::Shared],
-            PointerKind::Unique => match container {
-                Access::Shared => vec![Access::Shared],
-                Access::Owned | Access::Exclusive => {
-                    vec![Access::Exclusive]
-                }
-            },
-            PointerKind::Raw => vec![Access::Shared, Access::Exclusive],
-        }
-    }
-}
-
-/// How a cast holds a value, as `typestate_groups::Access`.
-#[derive(Clone, Copy)]
-pub(crate) enum Access {
-    Owned,
-    Shared,
-    Exclusive,
-}
-
-impl Access {
-    const ALL: [Access; 3] =
-        [Access::Owned, Access::Shared, Access::Exclusive];
-
-    /// `::typestate_groups::Owned`
-    fn path(self) -> TokenStream {
-        match self {
-            Access::Owned => quote!(::typestate_groups::Owned),
-            Access::Shared => quote!(::typestate_groups::Shared),
-            Access::Exclusive => quote!(::typestate_groups::Exclusive),
-        }
-    }
-
-    /// The bounds that keep a `src` valid as a `dst` under this access.
-    ///
-    /// `Owned` needs `dst: CastFrom<src>`, `Shared` adds
-    /// `dst: CastRefFrom<src>` and `Exclusive` adds `src: CastFrom<dst>`.
-    fn predicates(self, src: &Type, dst: &Type) -> Vec<WherePredicate> {
-        let forward =
-            parse_quote!(#dst: ::typestate_groups::CastFrom<#src>);
-        match self {
-            Access::Owned => vec![forward],
-            Access::Shared => vec![
-                forward,
-                parse_quote!(#dst: ::typestate_groups::CastRefFrom<#src>),
-            ],
-            Access::Exclusive => vec![
-                forward,
-                parse_quote!(#src: ::typestate_groups::CastFrom<#dst>),
-            ],
-        }
-    }
+    /// Any other type, which must implement `typestate_groups::Indirect`.
+    Indirect(Type),
 }
 
 #[ext]
@@ -674,36 +621,19 @@ impl ItemStruct {
 
 #[ext]
 impl Field {
-    /// How this field changes between states, or an error when its layout
-    /// may change in a way `#[typestate]` can't check.
+    /// How this field changes between states.
     ///
     /// `S::Value -> Projection(Value)`,
-    /// `Option<NonNull<S::Value>> -> Pointer { Raw, S::Value }`
-    fn shape(&self, state: &Ident) -> syn::Result<FieldShape> {
+    /// `Option<NonNull<S::Value>> -> Indirect(..)`
+    fn shape(&self, state: &Ident) -> FieldShape {
         let ty = &self.ty;
         if !ty.mentions_ident(state) || ty.is_zst() {
-            return Ok(FieldShape::Fixed);
+            FieldShape::Fixed
+        } else if let Some(assoc) = ty.state_projection(state) {
+            FieldShape::Projection(assoc.clone())
+        } else {
+            FieldShape::Indirect(ty.clone())
         }
-        if let Some(assoc) = ty.state_projection(state) {
-            return Ok(FieldShape::Projection(assoc.clone()));
-        }
-        if let Some((kind, pointee)) = ty.pointer() {
-            return Ok(FieldShape::Pointer {
-                kind,
-                pointee: pointee.clone(),
-            });
-        }
-
-        Err(syn::Error::new_spanned(
-            ty,
-            format!(
-                "make this field `{state}::Assoc`, a pointer to a sized \
-                 type (`*const`, `*mut`, `NonNull`, `&`, `&mut` or \
-                 `Box`, or one of the last four in an `Option`), a ZST \
-                 or a type without `{state}`, or remove \
-                 `unsafe_transmute = true` and convert with `morph`"
-            ),
-        ))
     }
 }
 
@@ -717,40 +647,6 @@ impl Type {
         };
         projections.visit_type(self);
         projections.found
-    }
-
-    /// The pointer kind and pointee when this type is a pointer whose
-    /// layout doesn't depend on a sized pointee. `Option` only wraps the
-    /// pointers std guarantees a null niche for.
-    ///
-    /// `Option<NonNull<S::Value>> -> (Raw, S::Value)`
-    fn pointer(&self) -> Option<(PointerKind, &Type)> {
-        match self.peeled() {
-            Type::Ptr(ptr) => Some((PointerKind::Raw, &ptr.elem)),
-            Type::Reference(TypeReference {
-                mutability, elem, ..
-            }) => match mutability {
-                Some(_) => Some((PointerKind::Unique, elem)),
-                None => Some((PointerKind::Shared, elem)),
-            },
-            Type::Path(TypePath {
-                qself: None, path, ..
-            }) => {
-                let arg = path.single_type_arg()?;
-                if path.is_std_item("ptr", "NonNull") {
-                    Some((PointerKind::Raw, arg))
-                } else if path.is_std_item("boxed", "Box") {
-                    Some((PointerKind::Boxed, arg))
-                } else if path.is_std_item("option", "Option")
-                    && !matches!(arg.peeled(), Type::Ptr(_))
-                {
-                    arg.pointer()
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
     }
 
     /// `T: 'a` for every `&'a T` inside this type whose `T` mentions

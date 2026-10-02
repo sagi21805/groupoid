@@ -82,7 +82,8 @@ struct ReprRust<S: Meta> {
     tag: u8,
 }
 
-// Fields that mention the state without being a bare `S::Assoc`.
+// Fields that mention the state without being a bare `S::Assoc` or an
+// `Indirect` pointer.
 #[typestate(state = S, unsafe_transmute = true)]
 struct Arrayed<S: Meta> {
     values: [S::Value; 2],
@@ -108,6 +109,18 @@ struct Wrapped<S: Meta> {
 #[typestate(state = S, unsafe_transmute = true)]
 struct OptionalRaw<S: Meta> {
     value: Option<*const S::Value>,
+}
+
+// `Vec` may order its fields differently per element type, and `Result`
+// holds its value inline.
+#[typestate(state = S, unsafe_transmute = true)]
+struct Listed<S: Meta> {
+    values: Vec<S::Value>,
+}
+
+#[typestate(state = S, unsafe_transmute = true)]
+struct Fallible<S: Meta> {
+    value: Result<S::Value, ()>,
 }
 
 // A `PhantomData` holds nothing to transmute.

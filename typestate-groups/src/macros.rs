@@ -42,3 +42,18 @@ macro_rules! layout_property {
         }
     };
 }
+
+/// Implements `Indirect` for each pointer, and `Repointed` between the
+/// pointer to `T` and the pointer to `U`.
+macro_rules! indirect {
+    ($(
+        impl<$($lt:lifetime,)? $t:ident, $u:ident> $src:ty => $dst:ty: $aliasing:ident;
+    )*) => {$(
+        unsafe impl<$($lt,)? $t> $crate::Indirect for $src {
+            type Pointee = $t;
+            type Aliasing = $crate::$aliasing;
+        }
+
+        unsafe impl<$($lt,)? $t, $u> $crate::Repointed<$src> for $dst {}
+    )*};
+}
