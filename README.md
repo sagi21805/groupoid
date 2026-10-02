@@ -224,6 +224,20 @@ When a field type is valid only for some values, such as `u32` into
 `char`, use `unsafe { transmute_state() }` and run `cargo miri test` on
 the code that calls it.
 
+A field can also be a pointer: `*const T`, `*mut T`, `NonNull<T>`, `&T`,
+`&mut T` or `Box<T>`, or any of the last four inside an `Option`. A
+pointer's layout doesn't depend on its sized pointee, so `T` needs no
+`#[size(N)]` for `transmute_state`. `cast_state` checks a pointee like a
+field held by value. It must also keep its size and alignment, and it
+gets the stricter checks of anyone else who may see it:
+
+| Pointer | Pointee also needs |
+|---|---|
+| `Box<T>` | nothing more |
+| `&T` | the `cast_state_ref` check |
+| `&mut T` | the `cast_state_mut` check, except under `cast_state_ref` |
+| `*const T`, `*mut T`, `NonNull<T>` | both |
+
 `morph::<Target>()` calls your `MorphFrom` impl. One impl can be generic
 over both states, and a container can morph its fields with their own
 impls. For a conversion that can fail, implement `TryMorphFrom` and call

@@ -4,8 +4,9 @@ use extend::ext;
 use proc_macro2::{TokenStream, TokenTree};
 use quote::{ToTokens, quote};
 use syn::{
-    AssocType, Attribute, Generics, Ident, Path, PredicateType, Token,
-    Type, TypeParam, TypeParamBound, TypePath, WherePredicate,
+    AssocType, Attribute, GenericArgument, Generics, Ident, Path,
+    PathArguments, PredicateType, Token, Type, TypeParam, TypeParamBound,
+    TypePath, WherePredicate,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     visit::Visit,
@@ -51,6 +52,20 @@ pub(crate) impl Type {
     fn mentions_ident(&self, ident: &Ident) -> bool {
         self.to_token_stream().mentions_ident(ident)
     }
+
+    /// This type with every `from` renamed to `to`.
+    ///
+    /// `Node<S>` -> `Node<T>`
+    fn renamed(&self, from: &Ident, to: &Ident) -> Type {
+        let mut ty = self.clone();
+        Rename {
+            from,
+            to,
+            found: false,
+        }
+        .visit_type_mut(&mut ty);
+        ty
+    }
 }
 
 #[ext]
@@ -73,6 +88,22 @@ pub(crate) impl Path {
                 }
                 _ => false,
             }
+    }
+
+    /// The last segment's type argument when it is the only argument.
+    ///
+    /// `Box<T>` -> `T`
+    fn single_type_arg(&self) -> Option<&Type> {
+        let PathArguments::AngleBracketed(args) =
+            &self.segments.last()?.arguments
+        else {
+            return None;
+        };
+
+        match args.args.iter().collect::<Vec<_>>().as_slice() {
+            [GenericArgument::Type(ty)] => Some(ty),
+            _ => None,
+        }
     }
 
     /// `a::Meta` -> `a::MetaGroupMarker`

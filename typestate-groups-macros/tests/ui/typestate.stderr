@@ -46,7 +46,7 @@ error: replace `S::Marker` with `PhantomData<S>`: a group marker has no value to
 69 |     marker: S::Marker,
    |                ^^^^^^
 
-error: add a field of type `S::Assoc`, or remove `unsafe_transmute = true`
+error: add a field of type `S::Assoc` or a pointer to one, or remove `unsafe_transmute = true`
   --> tests/ui/typestate.rs:73:8
    |
 73 | struct NoProjection<S> {
@@ -58,29 +58,41 @@ error: add `C` to this `#[repr(..)]`: `unsafe_transmute = true` needs a guarante
 79 | #[repr(Rust)]
    | ^^^^^^^^^^^^^
 
-error: make this field `S::Assoc`, a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `morph`
+error: make this field `S::Assoc`, a pointer to a sized type (`*const`, `*mut`, `NonNull`, `&`, `&mut` or `Box`, or one of the last four in an `Option`), a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `morph`
   --> tests/ui/typestate.rs:88:13
    |
 88 |     values: [S::Value; 2],
    |             ^^^^^^^^^^^^^
 
-error: make this field `S::Assoc`, a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `morph`
+error: make this field `S::Assoc`, a pointer to a sized type (`*const`, `*mut`, `NonNull`, `&`, `&mut` or `Box`, or one of the last four in an `Option`), a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `morph`
   --> tests/ui/typestate.rs:94:13
    |
 94 |     marker: S,
    |             ^
 
-error: make this field `S::Assoc`, a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `morph`
+error: make this field `S::Assoc`, a pointer to a sized type (`*const`, `*mut`, `NonNull`, `&`, `&mut` or `Box`, or one of the last four in an `Option`), a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `morph`
   --> tests/ui/typestate.rs:99:12
    |
 99 |     value: <S as Meta>::Value,
    |            ^^^^^^^^^^^^^^^^^^
 
-error: make this field `S::Assoc`, a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `morph`
+error: make this field `S::Assoc`, a pointer to a sized type (`*const`, `*mut`, `NonNull`, `&`, `&mut` or `Box`, or one of the last four in an `Option`), a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `morph`
    --> tests/ui/typestate.rs:104:12
     |
 104 |     value: Option<S::Value>,
     |            ^^^^^^^^^^^^^^^^
+
+error: make this field `S::Assoc`, a pointer to a sized type (`*const`, `*mut`, `NonNull`, `&`, `&mut` or `Box`, or one of the last four in an `Option`), a ZST or a type without `S`, or remove `unsafe_transmute = true` and convert with `morph`
+   --> tests/ui/typestate.rs:110:12
+    |
+110 |     value: Option<*const S::Value>,
+    |            ^^^^^^^^^^^^^^^^^^^^^^^
+
+error: add a field of type `S::Assoc` or a pointer to one, or remove `unsafe_transmute = true`
+   --> tests/ui/typestate.rs:115:8
+    |
+115 | struct PhantomOnly<S: Meta> {
+    |        ^^^^^^^^^^^
 
 error[E0589]: invalid alignment value: not a power of two
   --> tests/ui/typestate.rs:56:57

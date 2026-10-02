@@ -104,4 +104,16 @@ struct Wrapped<S: Meta> {
     value: Option<S::Value>,
 }
 
+// std gives `Option` a null niche only around non-null pointers.
+#[typestate(state = S, unsafe_transmute = true)]
+struct OptionalRaw<S: Meta> {
+    value: Option<*const S::Value>,
+}
+
+// A `PhantomData` holds nothing to transmute.
+#[typestate(state = S, unsafe_transmute = true)]
+struct PhantomOnly<S: Meta> {
+    _value: core::marker::PhantomData<S::Value>,
+}
+
 fn main() {}

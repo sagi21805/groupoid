@@ -5,6 +5,7 @@ use core::{
     fmt::Debug,
     marker::{PhantomData, PhantomPinned},
     num::NonZeroU32,
+    ptr::NonNull,
 };
 use typestate_groups::Isomorphic;
 use typestate_groups_macros::{group, state, state_types, typestate};
@@ -207,4 +208,57 @@ fn transmute_state_sees_through_parens_and_macro_groups() {
     let signed: ViaMacro<Signed> =
         unsafe { ViaMacro::<Unsigned> { value: 5 }.transmute_state() };
     assert_eq!(signed.value, 5);
+}
+
+#[state_types]
+trait Payload {
+    type Item;
+}
+
+#[state]
+struct Text;
+#[state]
+struct Number;
+
+#[group(TextGroup)]
+impl Payload for (Text,) {
+    type Item = String;
+}
+
+#[group(NumberGroup)]
+impl Payload for (Number,) {
+    type Item = u64;
+}
+
+/// A pointer keeps its layout whatever it points at, so its pointee needs
+/// no `#[size(N)]`.
+#[typestate(unsafe_transmute = true)]
+struct Pointers<'a, S: Payload> {
+    raw: *const S::Item,
+    non_null: NonNull<S::Item>,
+    nullable: Option<NonNull<S::Item>>,
+    shared: Option<&'a S::Item>,
+    boxed: Option<Box<S::Item>>,
+    _item: PhantomData<S::Item>,
+}
+
+#[test]
+fn transmute_state_keeps_pointer_addresses() {
+    let text = String::from("pointee");
+    let ptr = NonNull::from(&text);
+    let pointers = Pointers::<Text> {
+        raw: ptr.as_ptr(),
+        non_null: ptr,
+        nullable: None,
+        shared: None,
+        boxed: None,
+        _item: PhantomData,
+    };
+    // SAFETY: the pointers are never read as `u64`, and the `Option`s are
+    // `None`.
+    let number: Pointers<Number> = unsafe { pointers.transmute_state() };
+
+    assert_eq!(number.raw.cast(), ptr.as_ptr());
+    assert_eq!(number.non_null.cast(), ptr);
+    assert!(number.nullable.is_none());
 }
